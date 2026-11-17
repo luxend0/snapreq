@@ -15,9 +15,9 @@ jobs:
         include:
           - os: ubuntu-22.04
             asset: snapreq-linux-x86_64.tar.gz
-          - os: macos-14
+          - os: macos-latest
             asset: snapreq-macos-arm64.tar.gz
-          - os: windows-2022
+          - os: windows-latest
             asset: snapreq-windows-x86_64.zip
     runs-on: ${{ matrix.os }}
     steps:
