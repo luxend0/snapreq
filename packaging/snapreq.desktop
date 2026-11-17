@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Snapreq
+Comment=Fast API client, requests are plain .http files
+Comment[de]=Schneller API-Client, Anfragen sind einfache .http-Dateien
+Exec=snapreq %f
+Icon=snapreq
+Terminal=false
+Categories=Development;Network;
+MimeType=inode/directory;

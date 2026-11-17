@@ -294,8 +294,24 @@ fn resolved(app: &App, st: &State, item: Option<usize>) -> (http::Request, Vec<S
 }
 
 fn now_text() -> String {
-    // ponytail: local time via date(1); avoids a time zone dependency for one label.
-    std::process::Command::new("date").arg("+%d.%m.%Y, %H:%M:%S").output().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default()
+    // ponytail: local time from the system's own tools; avoids a time zone dependency for one label.
+    #[cfg(unix)]
+    let out = std::process::Command::new("date").arg("+%d.%m.%Y, %H:%M:%S").output();
+    #[cfg(windows)]
+    let out = std::process::Command::new("cmd").args(["/C", "echo %date% %time:~0,8%"]).output();
+    out.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default()
+}
+
+/// A monospace family that exists on this system.
+fn mono_font() -> String {
+    // Slint does not resolve the generic "monospace" alias; on Linux ask fontconfig for the real family.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    if let Ok(o) = std::process::Command::new("fc-match").args(["monospace", "family"]).output() {
+        if let Some(f) = String::from_utf8_lossy(&o.stdout).split(',').next().map(str::trim).filter(|f| !f.is_empty()) {
+            return f.to_string();
+        }
+    }
+    if cfg!(target_os = "macos") { "Menlo" } else if cfg!(windows) { "Consolas" } else { "DejaVu Sans Mono" }.to_string()
 }
 
 fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
@@ -303,12 +319,8 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
         let _ = slint::select_bundled_translation("de");
     }
     let app = App::new()?;
-    // Slint does not resolve the generic "monospace" alias; ask fontconfig for the real family.
-    if let Ok(o) = std::process::Command::new("fc-match").args(["monospace", "family"]).output() {
-        if let Some(f) = String::from_utf8_lossy(&o.stdout).split(',').next().map(str::trim).filter(|f| !f.is_empty()) {
-            app.set_mono(f.into());
-        }
-    }
+    app.set_mono(mono_font().into());
+    app.set_animated(std::env::var_os("SNAPREQ_STATIC").is_none());
     let envs = run::environments(&dir);
     app.set_project(dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| dir.display().to_string()).into());
     app.set_envs(ModelRc::new(VecModel::from(envs.iter().map(|(n, _)| SharedString::from(n.as_str())).collect::<Vec<_>>())));
@@ -513,6 +525,7 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
     if std::env::var_os("SNAPREQ_PERF").is_some() {
         println!("show_ms {:.1}", t0.elapsed().as_secs_f64() * 1000.0);
         slint::Timer::single_shot(Duration::from_secs(4), || {
+            // Linux only; elsewhere this prints nothing
             let s = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
             s.lines().filter(|l| l.starts_with("VmRSS") || l.starts_with("VmHWM")).for_each(|l| println!("{l}"));
             let _ = slint::quit_event_loop();

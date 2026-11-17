@@ -1,0 +1,31 @@
+# Maintainer: Luxend <luxend@instantnode.eu>
+pkgname=snapreq-git
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Fast, lightweight API client. Requests are plain .http files."
+arch=('x86_64')
+url="https://github.com/luxend0/snapreq"
+license=('GPL-3.0-only')
+depends=('fontconfig' 'libxkbcommon' 'wayland')
+makedepends=('cargo' 'git')
+provides=('snapreq')
+conflicts=('snapreq')
+source=("git+https://github.com/luxend0/snapreq.git")
+sha256sums=('SKIP')
+
+pkgver() {
+    cd snapreq
+    printf "%s.r%s.%s" "$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+    cd snapreq
+    cargo build --release --locked
+}
+
+package() {
+    cd snapreq
+    install -Dm755 target/release/snapreq "$pkgdir/usr/bin/snapreq"
+    install -Dm644 packaging/snapreq.desktop "$pkgdir/usr/share/applications/snapreq.desktop"
+    install -Dm644 assets/snapreq.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/snapreq.svg"
+}

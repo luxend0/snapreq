@@ -12,3 +12,6 @@ Content-Type: application/json
   "name": "snapreq",
   "fast": true
 }
+
+### New request
+GET https://

@@ -6,13 +6,32 @@ A fast, lightweight API client for Linux, written in Rust. A replacement for Pos
 - Environments come from `http-client.env.json` (and `http-client.private.env.json` for secrets).
 - Window and terminal in one binary.
 
-Measured on the release build: window in about 30 ms, 25 MB RAM.
+## Install
+
+Linux and macOS (Apple Silicon), for the current user, no root:
 
 ```sh
-cargo build --release
-./target/release/snapreq examples              # window
-./target/release/snapreq run examples/demo.http  # terminal / CI
+curl -fsSL https://raw.githubusercontent.com/luxend0/snapreq/main/install.sh | sh
 ```
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/luxend0/snapreq/main/install.ps1 | iex
+```
+
+Arch Linux: `packaging/PKGBUILD` builds `snapreq-git`.
+
+From source: `cargo build --release`.
+
+## Use
+
+```sh
+snapreq examples                 # window for a folder
+snapreq run examples/demo.http   # terminal / CI
+```
+
+The moving backdrop can be switched off with the "Motion" button or `SNAPREQ_STATIC=1`.
 
 Shortcuts: Ctrl+Enter send, Ctrl+S save, Ctrl+N new request, Ctrl+L focus URL.
 

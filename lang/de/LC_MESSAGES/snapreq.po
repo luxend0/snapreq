@@ -92,3 +92,9 @@ msgstr "Formatiert"
 
 msgid "Raw"
 msgstr "Roh"
+
+msgid "Motion on"
+msgstr "Bewegung an"
+
+msgid "Motion off"
+msgstr "Bewegung aus"
