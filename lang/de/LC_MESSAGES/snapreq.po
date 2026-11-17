@@ -3,14 +3,8 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Language: de\n"
 
-msgid "New"
-msgstr "Neu"
-
 msgid "Environment"
 msgstr "Umgebung"
-
-msgid "No .http files in this folder yet. Press New to create the first request."
-msgstr "Noch keine .http-Dateien in diesem Ordner. Mit Neu legst du die erste Anfrage an."
 
 msgid "Method"
 msgstr "Methode"
@@ -30,8 +24,59 @@ msgstr "Body"
 msgid "Headers"
 msgstr "Header"
 
-msgid "Response"
-msgstr "Antwort"
+msgid "Params"
+msgstr "Parameter"
 
 msgid "Press Ctrl+Enter to send the request."
 msgstr "Strg+Enter sendet die Anfrage."
+
+msgid "Key"
+msgstr "Schlüssel"
+
+msgid "Value"
+msgstr "Wert"
+
+msgid "Remove"
+msgstr "Entfernen"
+
+msgid "Add row"
+msgstr "Zeile hinzufügen"
+
+msgid "Search requests…"
+msgstr "Anfragen suchen…"
+
+msgid "New request"
+msgstr "Neue Anfrage"
+
+msgid "No requests here. Press + to create the first one."
+msgstr "Noch keine Anfragen. Mit + legst du die erste an."
+
+msgid "Copy response"
+msgstr "Antwort kopieren"
+
+msgid "Response copied"
+msgstr "Antwort kopiert"
+
+msgid "Details"
+msgstr "Details"
+
+msgid "Sent"
+msgstr "Gesendet"
+
+msgid "Duration"
+msgstr "Dauer"
+
+msgid "Size"
+msgstr "Größe"
+
+msgid "Code snippet"
+msgstr "Code-Schnipsel"
+
+msgid "Quick actions"
+msgstr "Schnellaktionen"
+
+msgid "Copy as cURL"
+msgstr "Als cURL kopieren"
+
+msgid "cURL copied"
+msgstr "cURL kopiert"

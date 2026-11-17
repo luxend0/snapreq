@@ -110,14 +110,6 @@ pub fn replace(text: &str, old: &Request, new: &Request) -> String {
     out
 }
 
-pub fn headers_from_text(t: &str) -> Vec<(String, String)> {
-    t.lines().filter_map(|l| l.split_once(':')).map(|(k, v)| (k.trim().to_string(), v.trim().to_string())).filter(|(k, _)| !k.is_empty()).collect()
-}
-
-pub fn headers_to_text(h: &[(String, String)]) -> String {
-    h.iter().map(|(k, v)| format!("{k}: {v}")).collect::<Vec<_>>().join("\n")
-}
-
 /// Fills in {{name}} placeholders. Unknown names stay as they are and are returned for reporting.
 pub fn substitute(s: &str, vars: &HashMap<String, String>, missing: &mut Vec<String>) -> String {
     let mut out = String::with_capacity(s.len());

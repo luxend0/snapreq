@@ -3,115 +3,372 @@ import { ListView, LineEdit, TextEdit, ComboBox, Palette } from "std-widgets.sli
 export struct Entry {
     label: string,
     method: string,
-    header: bool, // a file name row, not a request
+    sub: string,
+    header: bool, // a file row, not a request
+}
+
+export struct KV {
+    key: string,
+    value: string,
+}
+
+// One line of the response body, split for colouring.
+export struct Line {
+    key: string, // indentation plus JSON key, may be empty
+    value: string,
+    kind: int, // 0 plain, 1 string, 2 number, 3 keyword, 4 punctuation
 }
 
 export global Theme {
     out property <bool> dark: Palette.color-scheme != ColorScheme.light;
-    out property <color> bg: dark ? #0a0a0a : #f6f6f6;
-    out property <color> panel: dark ? #121212 : #ffffff;
-    out property <color> hover: dark ? #1d1d1d : #ececec;
-    out property <color> line: dark ? #262626 : #e0e0e0;
-    out property <color> fg: dark ? #f3f3f3 : #121212;
-    out property <color> muted: dark ? #8c8c8c : #686868;
-    out property <color> accent: dark ? #e0662f : #b9501f;
-    out property <color> ok: dark ? #4cc38a : #18794e;
-    out property <color> bad: dark ? #ff6369 : #cd2b31;
+    out property <brush> backdrop: dark ? @linear-gradient(135deg, #07060d 0%, #120e26 45%, #2b1a6b 100%) : @linear-gradient(135deg, #f4f2ff 0%, #e9e4ff 100%);
+    out property <color> panel: dark ? #13112299 : #ffffffd9;
+    out property <color> raised: dark ? #1c1933 : #f3f0ff;
+    out property <color> hover: dark ? #262245 : #e8e2ff;
+    out property <color> line: dark ? #2c2850 : #d6cfee;
+    out property <color> fg: dark ? #efedff : #17132b;
+    out property <color> muted: dark ? #9a96b8 : #615c80;
+    out property <color> accent: dark ? #7c5cff : #6842f5;
+    out property <color> accent-soft: dark ? #7c5cff33 : #6842f522;
+    out property <color> ok: dark ? #3ddc97 : #107a4d;
+    out property <color> ok-soft: dark ? #3ddc9726 : #107a4d1f;
+    out property <color> bad: dark ? #ff6b81 : #c4263e;
+    out property <color> bad-soft: dark ? #ff6b8126 : #c4263e1f;
+    out property <color> c-key: dark ? #8fd3ff : #0b62a8;
+    out property <color> c-string: dark ? #f0d77a : #8a5a00;
+    out property <color> c-number: dark ? #ff9e64 : #b54708;
+    out property <color> c-keyword: dark ? #c4a7ff : #6842f5;
+    public pure function method(m: string) -> color {
+        m == "GET" ? #6aa5ff : m == "POST" ? #ff9e64 : m == "DELETE" ? self.bad : m == "PUT" || m == "PATCH" ? #f0d77a : self.muted
+    }
 }
 
-component Row {
-    in property <Entry> e;
-    in property <bool> selected;
-    callback clicked;
-    height: e.header ? 30px : 34px;
-    accessible-role: list-item;
-    accessible-label: e.header ? e.label : e.method + " " + e.label;
-    accessible-action-default => { root.clicked(); }
-    ta := TouchArea {
-        enabled: !root.e.header;
-        clicked => { root.clicked(); }
-    }
-    Rectangle {
-        border-radius: 6px;
-        background: root.selected ? Theme.hover : (ta.has-hover ? Theme.hover : transparent);
-    }
-    HorizontalLayout {
-        padding-left: 10px;
-        padding-right: 10px;
-        spacing: 8px;
-        if !root.e.header: Text {
-            width: 52px;
-            text: root.e.method;
-            color: Theme.accent;
-            font-size: 11px;
-            font-weight: 700;
-            vertical-alignment: center;
-            overflow: elide;
-        }
-        Text {
-            text: root.e.label;
-            color: root.e.header ? Theme.muted : Theme.fg;
-            font-size: root.e.header ? 12px : 14px;
-            font-weight: root.e.header ? 700 : 400;
-            vertical-alignment: center;
-            overflow: elide;
-        }
-    }
+global Icons {
+    out property <string> folder: "M 3 6 L 9 6 L 11 8 L 21 8 L 21 19 L 3 19 Z";
+    out property <string> plus: "M 12 5 L 12 19 M 5 12 L 19 12";
+    out property <string> search: "M 10 3 A 7 7 0 1 0 10 17 A 7 7 0 1 0 10 3 Z M 15 15 L 21 21";
+    out property <string> send: "M 3 11 L 21 3 L 14 21 L 11 13 Z";
+    out property <string> copy: "M 8 8 L 20 8 L 20 20 L 8 20 Z M 4 16 L 4 4 L 16 4";
+    out property <string> close: "M 6 6 L 18 18 M 18 6 L 6 18";
+    out property <string> save: "M 5 4 L 16 4 L 20 8 L 20 20 L 5 20 Z M 8 4 L 8 9 L 15 9 M 8 20 L 8 14 L 16 14 L 16 20";
+    out property <string> bolt: "M 14 2 L 5 14 L 11 14 L 9 22 L 19 9 L 13 9 Z";
+}
+
+component Icon inherits Path {
+    in property <color> tint: Theme.muted;
+    in property <bool> filled;
+    width: 18px;
+    height: 18px;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    fill: filled ? tint : transparent;
+    stroke: filled ? transparent : tint;
+    stroke-width: filled ? 0px : 2px;
+}
+
+component Panel inherits Rectangle {
+    background: Theme.panel;
+    border-radius: 14px;
+    border-width: 1px;
+    border-color: Theme.line;
 }
 
 component Btn {
     in property <string> text;
+    in property <string> icon;
+    in property <string> label;
     in property <bool> primary;
     in property <bool> enabled: true;
+    in property <length> h: 36px;
     callback clicked;
-    height: 32px;
-    min-width: label.preferred-width + 28px;
+    height: h;
+    min-width: row.preferred-width;
     horizontal-stretch: 0;
     accessible-role: button;
-    accessible-label: text;
+    accessible-label: label != "" ? label : text;
     accessible-enabled: enabled;
-    accessible-action-default => { if (root.enabled) { root.clicked(); } }
+    accessible-action-default => {
+        if (root.enabled) {
+            root.clicked();
+        }
+    }
     ta := TouchArea {
         enabled: root.enabled;
         clicked => { root.clicked(); }
     }
     Rectangle {
-        border-radius: 6px;
-        background: root.primary ? Theme.accent : (ta.has-hover ? Theme.hover : transparent);
+        border-radius: 9px;
+        background: root.primary ? Theme.accent : (ta.has-hover ? Theme.hover : Theme.raised);
         border-width: root.primary ? 0px : 1px;
         border-color: Theme.line;
-        opacity: root.enabled ? (ta.pressed ? 0.8 : 1) : 0.4;
+        opacity: root.enabled ? (ta.pressed ? 0.8 : 1) : 0.45;
     }
-    label := Text {
-        text: root.text;
-        color: root.primary ? #ffffff : Theme.fg;
-        font-weight: 600;
-        opacity: root.enabled ? 1 : 0.5;
+    row := HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 8px;
+        alignment: center;
+        if root.icon != "": Icon {
+            y: (parent.height - self.height) / 2;
+            commands: root.icon;
+            filled: root.primary;
+            tint: root.primary ? #ffffff : Theme.fg;
+            opacity: root.enabled ? 1 : 0.5;
+        }
+        if root.text != "": Text {
+            text: root.text;
+            color: root.primary ? #ffffff : Theme.fg;
+            font-weight: 600;
+            vertical-alignment: center;
+            opacity: root.enabled ? 1 : 0.5;
+        }
     }
 }
 
 component Tabs {
     in property <[string]> titles;
     in-out property <int> current;
-    height: 30px;
+    height: 34px;
     HorizontalLayout {
         alignment: start;
-        spacing: 4px;
+        spacing: 22px;
         for title[i] in root.titles: Rectangle {
-            width: tab-label.preferred-width + 24px;
-            border-radius: 6px;
-            background: i == root.current ? Theme.hover : transparent;
+            width: tab-label.preferred-width;
             accessible-role: tab;
             accessible-label: title;
             accessible-action-default => { root.current = i; }
-            TouchArea {
+            ta := TouchArea {
                 clicked => { root.current = i; }
             }
             tab-label := Text {
+                y: 4px;
                 text: title;
-                color: i == root.current ? Theme.fg : Theme.muted;
-                font-weight: i == root.current ? 700 : 400;
+                color: i == root.current || ta.has-hover ? Theme.fg : Theme.muted;
+                font-weight: i == root.current ? 600 : 400;
             }
+            Rectangle {
+                y: parent.height - 3px;
+                height: 3px;
+                border-radius: 1.5px;
+                background: i == root.current ? Theme.accent : transparent;
+            }
+        }
+    }
+}
+
+component Cell {
+    in-out property <string> text;
+    in property <string> hint;
+    in property <string> family;
+    callback edited;
+    horizontal-stretch: 1;
+    height: 36px;
+    if input.text == "": Text {
+        x: 12px;
+        text: root.hint;
+        color: Theme.muted;
+        opacity: 0.6;
+        vertical-alignment: center;
+        width: parent.width - 24px;
+        height: parent.height;
+    }
+    input := TextInput {
+        x: 12px;
+        width: parent.width - 24px;
+        height: parent.height;
+        text <=> root.text;
+        color: Theme.fg;
+        font-family: root.family;
+        single-line: true;
+        vertical-alignment: center;
+        accessible-label: root.hint;
+        edited => { root.edited(); }
+    }
+}
+
+// Editable key/value table used for query parameters and headers.
+component Table {
+    in-out property <[KV]> rows;
+    in property <string> family;
+    callback changed;
+    callback add;
+    callback remove(int);
+    Rectangle {
+        border-radius: 10px;
+        border-width: 1px;
+        border-color: Theme.line;
+        background: Theme.raised;
+        clip: true;
+        VerticalLayout {
+            HorizontalLayout {
+                height: 34px;
+                padding-left: 12px;
+                Text {
+                    text: @tr("Key");
+                    color: Theme.muted;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                Text {
+                    text: @tr("Value");
+                    color: Theme.muted;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                Rectangle {
+                    width: 36px;
+                }
+            }
+            ListView {
+                vertical-stretch: 1;
+                for r[i] in root.rows: VerticalLayout {
+                    Rectangle {
+                        height: 1px;
+                        background: Theme.line;
+                    }
+                    HorizontalLayout {
+                        Cell {
+                            text: r.key;
+                            hint: @tr("Key");
+                            family: root.family;
+                            edited => {
+                                root.rows[i].key = self.text;
+                                root.changed();
+                            }
+                        }
+                        Rectangle {
+                            width: 1px;
+                            background: Theme.line;
+                        }
+                        Cell {
+                            text: r.value;
+                            hint: @tr("Value");
+                            family: root.family;
+                            edited => {
+                                root.rows[i].value = self.text;
+                                root.changed();
+                            }
+                        }
+                        Rectangle {
+                            width: 36px;
+                            accessible-role: button;
+                            accessible-label: @tr("Remove");
+                            accessible-action-default => { root.remove(i); }
+                            del := TouchArea {
+                                clicked => { root.remove(i); }
+                            }
+                            Icon {
+                                width: 14px;
+                                height: 14px;
+                                commands: Icons.close;
+                                tint: del.has-hover ? Theme.bad : Theme.muted;
+                            }
+                        }
+                    }
+                }
+            }
+            Rectangle {
+                height: 1px;
+                background: Theme.line;
+            }
+            Rectangle {
+                height: 36px;
+                accessible-role: button;
+                accessible-label: @tr("Add row");
+                accessible-action-default => { root.add(); }
+                adder := TouchArea {
+                    clicked => { root.add(); }
+                }
+                Text {
+                    x: 12px;
+                    text: "+  " + @tr("Add row");
+                    color: adder.has-hover ? Theme.fg : Theme.muted;
+                    vertical-alignment: center;
+                    height: parent.height;
+                }
+            }
+        }
+    }
+}
+
+component SideRow {
+    in property <Entry> e;
+    in property <bool> selected;
+    callback clicked;
+    height: e.header ? 52px : 36px;
+    accessible-role: list-item;
+    accessible-label: e.header ? e.label + ", " + e.sub : e.method + " " + e.label;
+    accessible-action-default => { root.clicked(); }
+    ta := TouchArea {
+        enabled: !root.e.header;
+        clicked => { root.clicked(); }
+    }
+    Rectangle {
+        border-radius: 9px;
+        background: root.selected ? Theme.accent-soft : (ta.has-hover ? Theme.hover : transparent);
+        border-width: root.selected ? 1px : 0px;
+        border-color: Theme.accent;
+    }
+    HorizontalLayout {
+        padding-left: root.e.header ? 10px : 14px;
+        padding-right: 10px;
+        spacing: 10px;
+        if root.e.header: Icon {
+            y: (parent.height - self.height) / 2;
+            commands: Icons.folder;
+            tint: Theme.accent;
+        }
+        if root.e.header: VerticalLayout {
+            alignment: center;
+            Text {
+                text: root.e.label;
+                color: Theme.fg;
+                font-weight: 600;
+                overflow: elide;
+            }
+            Text {
+                text: root.e.sub;
+                color: Theme.muted;
+                font-size: 12px;
+            }
+        }
+        if !root.e.header: Text {
+            width: 46px;
+            text: root.e.method;
+            color: Theme.method(root.e.method);
+            font-size: 11px;
+            font-weight: 700;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if !root.e.header: Text {
+            text: root.e.label;
+            color: root.selected ? Theme.fg : Theme.muted;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+component Detail {
+    in property <string> label;
+    in property <string> value;
+    in property <string> family;
+    HorizontalLayout {
+        spacing: 12px;
+        Text {
+            width: 84px;
+            text: root.label;
+            color: Theme.muted;
+        }
+        Text {
+            text: root.value == "" ? "-" : root.value;
+            color: Theme.fg;
+            font-family: root.family;
+            wrap: char-wrap;
+            horizontal-stretch: 1;
         }
     }
 }
@@ -121,9 +378,9 @@ export component App inherits Window {
     icon: @image-url("../assets/snapreq.svg");
     min-width: 640px;
     min-height: 420px;
-    preferred-width: 1240px;
-    preferred-height: 800px;
-    background: Theme.bg;
+    preferred-width: 1440px;
+    preferred-height: 860px;
+    background: Theme.backdrop;
     default-font-size: 14px;
 
     in property <string> project;
@@ -131,30 +388,50 @@ export component App inherits Window {
     in-out property <int> current: -1;
     in property <[string]> envs;
     in-out property <string> env;
+    in property <string> mono: "monospace";
 
     in-out property <string> method: "GET";
     in-out property <string> url;
-    in-out property <string> headers;
+    in-out property <[KV]> params;
+    in-out property <[KV]> headers;
     in-out property <string> body;
     in-out property <bool> dirty;
 
     in property <bool> busy;
     in property <string> status; // "200 OK"
     in property <int> status-class; // 0 none, 2 ok, 3 redirect, 4 error
-    in property <string> meta; // "123 ms · 4.2 kB"
-    in property <string> resp-body;
-    in property <string> resp-headers;
-    in property <string> note;
+    in property <string> duration;
+    in property <string> size;
+    in property <string> sent;
+    in property <string> sent-url;
+    in property <[Line]> resp-lines;
+    in property <string> resp-text; // same body as plain text, for copying
+    in property <[KV]> resp-headers;
+    in property <string> curl;
+    in-out property <string> note;
 
     callback select(int);
     callback send;
     callback save;
     callback new-request;
-    callback env-selected(string);
+    callback search(string);
+    callback url-edited;
+    callback params-changed;
+    callback add-param;
+    callback remove-param(int);
+    callback add-header;
+    callback remove-header(int);
 
-    in property <string> mono: "monospace";
     property <int> req-tab;
     property <int> resp-tab;
+    property <bool> wide: root.width >= 1180px;
+
+    function copy(text: string, what: string) {
+        clip.text = text;
+        clip.select-all();
+        clip.copy();
+        root.note = what;
+    }
 
     function keys(e: KeyEvent) -> EventResult {
         if (e.modifiers.control && e.text == Key.Return) {
@@ -174,171 +451,490 @@ export component App inherits Window {
             url-edit.select-all();
             return accept;
         }
+        if (e.modifiers.control && e.text == "k") {
+            search-edit.focus();
+            search-edit.select-all();
+            return accept;
+        }
         return reject;
+    }
+
+    clip := TextInput {
+        visible: false;
+        width: 0px;
+        height: 0px;
     }
 
     forward-focus: scope;
     scope := FocusScope {
         key-pressed(e) => { root.keys(e) }
 
-        HorizontalLayout {
-            padding: 8px;
-            spacing: 8px;
+        VerticalLayout {
+            x: 0;
+            y: 0;
+            width: root.width;
+            height: root.height;
+            padding: 14px;
+            spacing: 12px;
 
-            // sidebar: files and their requests
-            Rectangle {
-                width: 240px;
-                background: Theme.panel;
-                border-radius: 8px;
-                VerticalLayout {
-                    padding: 8px;
-                    spacing: 6px;
+            // top bar
+            HorizontalLayout {
+                height: 40px;
+                spacing: 14px;
+                HorizontalLayout {
+                    width: 246px;
+                    spacing: 10px;
+                    alignment: start;
+                    Icon {
+                        y: (parent.height - self.height) / 2;
+                        width: 26px;
+                        height: 26px;
+                        commands: Icons.bolt;
+                        filled: true;
+                        tint: Theme.accent;
+                    }
+                    Text {
+                        text: "Snapreq";
+                        color: Theme.fg;
+                        font-size: 19px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
+                }
+                Rectangle {
+                    horizontal-stretch: 1;
+                    max-width: 520px;
+                    border-radius: 10px;
+                    border-width: 1px;
+                    border-color: search-edit.has-focus ? Theme.accent : Theme.line;
+                    background: Theme.panel;
                     HorizontalLayout {
-                        spacing: 8px;
-                        Text {
-                            text: root.project;
-                            color: Theme.fg;
-                            font-weight: 700;
-                            vertical-alignment: center;
-                            overflow: elide;
+                        padding-left: 12px;
+                        padding-right: 10px;
+                        spacing: 10px;
+                        Icon {
+                            y: (parent.height - self.height) / 2;
+                            width: 16px;
+                            height: 16px;
+                            commands: Icons.search;
+                        }
+                        Rectangle {
                             horizontal-stretch: 1;
+                            if search-edit.text == "": Text {
+                                width: parent.width;
+                                height: parent.height;
+                                text: @tr("Search requests…");
+                                color: Theme.muted;
+                                vertical-alignment: center;
+                                horizontal-alignment: left;
+                            }
+                            search-edit := TextInput {
+                                width: parent.width;
+                                height: parent.height;
+                                color: Theme.fg;
+                                single-line: true;
+                                vertical-alignment: center;
+                                accessible-label: @tr("Search requests…");
+                                edited => { root.search(self.text); }
+                                key-pressed(e) => { root.keys(e) }
+                            }
                         }
-                        Btn {
-                            text: @tr("New");
-                            clicked => { root.new-request(); }
+                        Rectangle {
+                            y: (parent.height - self.height) / 2;
+                            width: hint.preferred-width + 14px;
+                            height: 24px;
+                            border-radius: 6px;
+                            background: Theme.raised;
+                            hint := Text {
+                                text: "Ctrl + K";
+                                color: Theme.muted;
+                                font-size: 12px;
+                            }
                         }
                     }
-                    if root.envs.length > 0: ComboBox {
-                        model: root.envs;
-                        current-value <=> root.env;
-                        accessible-label: @tr("Environment");
-                        selected(v) => { root.env-selected(v); }
-                    }
-                    if root.entries.length == 0: Text {
-                        text: @tr("No .http files in this folder yet. Press New to create the first request.");
-                        color: Theme.muted;
-                        wrap: word-wrap;
-                    }
-                    ListView {
-                        vertical-stretch: 1;
-                        for e[i] in root.entries: Row {
-                            e: e;
-                            selected: i == root.current;
-                            clicked => { root.select(i); }
-                        }
-                    }
+                }
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.note;
+                    color: Theme.muted;
+                    vertical-alignment: center;
+                    horizontal-alignment: right;
+                    overflow: elide;
+                }
+                if root.envs.length > 0: ComboBox {
+                    width: 170px;
+                    model: root.envs;
+                    current-value <=> root.env;
+                    accessible-label: @tr("Environment");
                 }
             }
 
-            VerticalLayout {
-                spacing: 8px;
-                horizontal-stretch: 1;
+            HorizontalLayout {
+                spacing: 12px;
+                vertical-stretch: 1;
 
-                // request
-                Rectangle {
-                    background: Theme.panel;
-                    border-radius: 8px;
-                    vertical-stretch: 2;
+                // sidebar (hidden in very narrow windows so the request stays usable)
+                if root.width >= 820px: Panel {
+                    width: 260px;
                     VerticalLayout {
-                        padding: 12px;
-                        spacing: 10px;
+                        padding: 10px;
+                        spacing: 6px;
                         HorizontalLayout {
+                            height: 36px;
+                            padding-left: 6px;
                             spacing: 8px;
-                            ComboBox {
-                                width: 120px;
-                                model: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
-                                current-value <=> root.method;
-                                accessible-label: @tr("Method");
-                                selected => { root.dirty = true; }
-                            }
-                            url-edit := LineEdit {
-                                text <=> root.url;
-                                placeholder-text: "https://api.example.com/users";
-                                font-family: root.mono;
-                                accessible-label: "URL";
-                                edited => { root.dirty = true; }
-                                accepted => { root.send(); }
-                                key-pressed(e) => { root.keys(e) }
+                            Text {
+                                text: root.project;
+                                color: Theme.fg;
+                                font-weight: 700;
+                                vertical-alignment: center;
+                                overflow: elide;
+                                horizontal-stretch: 1;
                             }
                             Btn {
-                                text: root.busy ? @tr("Sending…") : @tr("Send");
-                                primary: true;
-                                enabled: !root.busy && root.url != "";
-                                clicked => { root.send(); }
-                            }
-                            Btn {
-                                text: @tr("Save");
-                                enabled: root.dirty && root.current >= 0;
-                                clicked => { root.save(); }
+                                icon: Icons.plus;
+                                h: 32px;
+                                label: @tr("New request");
+                                clicked => { root.new-request(); }
                             }
                         }
-                        Tabs {
-                            titles: [@tr("Body"), @tr("Headers")];
-                            current <=> root.req-tab;
+                        if root.entries.length == 0: Text {
+                            text: @tr("No requests here. Press + to create the first one.");
+                            color: Theme.muted;
+                            wrap: word-wrap;
                         }
-                        if root.req-tab == 0: TextEdit {
+                        ListView {
                             vertical-stretch: 1;
-                            text <=> root.body;
-                            font-family: root.mono;
-                            wrap: no-wrap;
-                            edited => { root.dirty = true; }
-                            key-pressed(e) => { root.keys(e) }
-                        }
-                        if root.req-tab == 1: TextEdit {
-                            vertical-stretch: 1;
-                            text <=> root.headers;
-                            font-family: root.mono;
-                            wrap: no-wrap;
-                            placeholder-text: "Content-Type: application/json\nAuthorization: Bearer {{token}}";
-                            edited => { root.dirty = true; }
-                            key-pressed(e) => { root.keys(e) }
+                            for e[i] in root.entries: SideRow {
+                                e: e;
+                                selected: i == root.current;
+                                clicked => { root.select(i); }
+                            }
                         }
                     }
                 }
 
-                // response
-                Rectangle {
-                    background: Theme.panel;
-                    border-radius: 8px;
-                    vertical-stretch: 3;
+                // request and response
+                VerticalLayout {
+                    spacing: 12px;
+                    horizontal-stretch: 1;
+
+                    Panel {
+                        vertical-stretch: 2;
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 12px;
+                            HorizontalLayout {
+                                spacing: 10px;
+                                height: 44px;
+                                ComboBox {
+                                    width: 124px;
+                                    model: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
+                                    current-value <=> root.method;
+                                    accessible-label: @tr("Method");
+                                    selected => { root.dirty = true; }
+                                }
+                                url-edit := LineEdit {
+                                    text <=> root.url;
+                                    placeholder-text: "https://api.example.com/users";
+                                    font-family: root.mono;
+                                    accessible-label: "URL";
+                                    edited => {
+                                        root.dirty = true;
+                                        root.url-edited();
+                                    }
+                                    accepted => { root.send(); }
+                                    key-pressed(e) => { root.keys(e) }
+                                }
+                                Btn {
+                                    h: 44px;
+                                    icon: Icons.send;
+                                    text: root.busy ? @tr("Sending…") : @tr("Send");
+                                    primary: true;
+                                    enabled: !root.busy && root.url != "";
+                                    clicked => { root.send(); }
+                                }
+                                Btn {
+                                    h: 44px;
+                                    icon: Icons.save;
+                                    text: @tr("Save");
+                                    enabled: root.dirty && root.current >= 0;
+                                    clicked => { root.save(); }
+                                }
+                            }
+                            Tabs {
+                                titles: [
+                                    @tr("Params") + (root.params.length > 0 ? " (" + root.params.length + ")" : ""),
+                                    @tr("Headers") + (root.headers.length > 0 ? " (" + root.headers.length + ")" : ""),
+                                    @tr("Body")
+                                ];
+                                current <=> root.req-tab;
+                            }
+                            if root.req-tab == 0: Table {
+                                vertical-stretch: 1;
+                                rows <=> root.params;
+                                family: root.mono;
+                                changed => {
+                                    root.dirty = true;
+                                    root.params-changed();
+                                }
+                                add => { root.add-param(); }
+                                remove(i) => { root.remove-param(i); }
+                            }
+                            if root.req-tab == 1: Table {
+                                vertical-stretch: 1;
+                                rows <=> root.headers;
+                                family: root.mono;
+                                changed => { root.dirty = true; }
+                                add => { root.add-header(); }
+                                remove(i) => { root.remove-header(i); }
+                            }
+                            if root.req-tab == 2: TextEdit {
+                                vertical-stretch: 1;
+                                text <=> root.body;
+                                font-family: root.mono;
+                                wrap: no-wrap;
+                                edited => { root.dirty = true; }
+                                key-pressed(e) => { root.keys(e) }
+                            }
+                        }
+                    }
+
+                    Panel {
+                        vertical-stretch: 3;
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 12px;
+                            HorizontalLayout {
+                                spacing: 14px;
+                                height: 34px;
+                                Tabs {
+                                    titles: [@tr("Body"), @tr("Headers") + (root.resp-headers.length > 0 ? " (" + root.resp-headers.length + ")" : "")];
+                                    current <=> root.resp-tab;
+                                }
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                }
+                                if root.status != "": Rectangle {
+                                    y: (parent.height - self.height) / 2;
+                                    width: pill.preferred-width + 20px;
+                                    height: 26px;
+                                    border-radius: 7px;
+                                    background: root.status-class == 4 ? Theme.bad-soft : Theme.ok-soft;
+                                    pill := Text {
+                                        text: root.status;
+                                        color: root.status-class == 4 ? Theme.bad : Theme.ok;
+                                        font-weight: 700;
+                                    }
+                                }
+                                Text {
+                                    text: root.duration;
+                                    color: Theme.muted;
+                                    vertical-alignment: center;
+                                }
+                                Text {
+                                    text: root.size;
+                                    color: Theme.muted;
+                                    vertical-alignment: center;
+                                }
+                                Btn {
+                                    y: (parent.height - self.height) / 2;
+                                    h: 30px;
+                                    icon: Icons.copy;
+                                    enabled: root.resp-text != "";
+                                    label: @tr("Copy response");
+                                    clicked => { root.copy(root.resp-text, @tr("Response copied")); }
+                                }
+                            }
+                            Rectangle {
+                                vertical-stretch: 1;
+                                border-radius: 10px;
+                                border-width: 1px;
+                                border-color: Theme.line;
+                                background: Theme.raised;
+                                clip: true;
+                                if root.status == "" && !root.busy: Text {
+                                    text: @tr("Press Ctrl+Enter to send the request.");
+                                    color: Theme.muted;
+                                }
+                                if root.resp-tab == 0: ListView {
+                                    x: 0;
+                                    y: 8px;
+                                    width: parent.width;
+                                    height: parent.height - 16px;
+                                    for l[i] in root.resp-lines: HorizontalLayout {
+                                        height: 21px;
+                                        spacing: 0px;
+                                        alignment: start;
+                                        Text {
+                                            width: 52px;
+                                            text: i + 1;
+                                            color: Theme.muted;
+                                            opacity: 0.6;
+                                            font-family: root.mono;
+                                            font-size: 13px;
+                                            horizontal-alignment: right;
+                                        }
+                                        Rectangle {
+                                            width: 18px;
+                                        }
+                                        Text {
+                                            text: l.key;
+                                            color: Theme.c-key;
+                                            font-family: root.mono;
+                                            font-size: 13px;
+                                        }
+                                        Text {
+                                            text: l.value;
+                                            color: l.kind == 1 ? Theme.c-string : l.kind == 2 ? Theme.c-number : l.kind == 3 ? Theme.c-keyword : l.kind == 4 ? Theme.muted : Theme.fg;
+                                            font-family: root.mono;
+                                            font-size: 13px;
+                                        }
+                                    }
+                                }
+                                if root.resp-tab == 1: ListView {
+                                    x: 14px;
+                                    y: 8px;
+                                    width: parent.width - 28px;
+                                    height: parent.height - 16px;
+                                    for h in root.resp-headers: HorizontalLayout {
+                                        height: 26px;
+                                        spacing: 14px;
+                                        Text {
+                                            width: 240px;
+                                            text: h.key;
+                                            color: Theme.c-key;
+                                            font-family: root.mono;
+                                            font-size: 13px;
+                                            overflow: elide;
+                                            vertical-alignment: center;
+                                        }
+                                        Text {
+                                            text: h.value;
+                                            color: Theme.fg;
+                                            font-family: root.mono;
+                                            font-size: 13px;
+                                            overflow: elide;
+                                            vertical-alignment: center;
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // details
+                if root.wide: Panel {
+                    width: 340px;
                     VerticalLayout {
-                        padding: 12px;
-                        spacing: 10px;
+                        padding: 18px;
+                        spacing: 12px;
+                        alignment: start;
+                        Text {
+                            text: @tr("Details");
+                            color: Theme.fg;
+                            font-size: 16px;
+                            font-weight: 700;
+                        }
                         HorizontalLayout {
                             spacing: 12px;
-                            height: 22px;
                             Text {
-                                text: root.status == "" ? @tr("Response") : root.status;
-                                color: root.status-class == 2 ? Theme.ok : (root.status-class == 4 ? Theme.bad : Theme.fg);
-                                font-weight: 700;
-                                vertical-alignment: center;
-                            }
-                            Text {
-                                text: root.meta;
+                                width: 84px;
+                                text: @tr("Method");
                                 color: Theme.muted;
                                 vertical-alignment: center;
                             }
-                            Text {
-                                text: root.note;
-                                color: Theme.accent;
-                                vertical-alignment: center;
+                            Rectangle {
+                                width: badge.preferred-width + 16px;
+                                height: 22px;
+                                border-radius: 6px;
+                                background: Theme.accent-soft;
+                                badge := Text {
+                                    text: root.method;
+                                    color: Theme.method(root.method);
+                                    font-size: 12px;
+                                    font-weight: 700;
+                                }
+                            }
+                            Rectangle {
                                 horizontal-stretch: 1;
-                                horizontal-alignment: right;
-                                overflow: elide;
                             }
                         }
-                        Tabs {
-                            titles: [@tr("Body"), @tr("Headers")];
-                            current <=> root.resp-tab;
+                        Detail {
+                            label: "URL";
+                            value: root.sent-url;
+                            family: root.mono;
                         }
-                        TextEdit {
-                            vertical-stretch: 1;
-                            text: root.resp-tab == 0 ? root.resp-body : root.resp-headers;
-                            read-only: true;
-                            font-family: root.mono;
-                            wrap: no-wrap;
-                            placeholder-text: @tr("Press Ctrl+Enter to send the request.");
-                            key-pressed(e) => { root.keys(e) }
+                        Detail {
+                            label: @tr("Sent");
+                            value: root.sent;
+                        }
+                        Detail {
+                            label: @tr("Duration");
+                            value: root.duration;
+                        }
+                        Detail {
+                            label: @tr("Size");
+                            value: root.size;
+                        }
+                        Rectangle {
+                            height: 1px;
+                            background: Theme.line;
+                        }
+                        HorizontalLayout {
+                            Text {
+                                text: @tr("Code snippet");
+                                color: Theme.fg;
+                                font-size: 16px;
+                                font-weight: 700;
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
+                            }
+                            Text {
+                                text: "cURL";
+                                color: Theme.muted;
+                                vertical-alignment: center;
+                            }
+                        }
+                        Rectangle {
+                            height: min(max(snippet.preferred-height + 24px, 80px), 220px);
+                            border-radius: 10px;
+                            border-width: 1px;
+                            border-color: Theme.line;
+                            background: Theme.raised;
+                            clip: true;
+                            snippet := Text {
+                                x: 12px;
+                                y: 12px;
+                                width: parent.width - 24px;
+                                text: root.curl;
+                                color: Theme.fg;
+                                font-family: root.mono;
+                                font-size: 12px;
+                                wrap: char-wrap;
+                                horizontal-alignment: left;
+                                vertical-alignment: top;
+                            }
+                        }
+                        Text {
+                            text: @tr("Quick actions");
+                            color: Theme.fg;
+                            font-size: 16px;
+                            font-weight: 700;
+                        }
+                        Btn {
+                            icon: Icons.copy;
+                            text: @tr("Copy as cURL");
+                            enabled: root.curl != "";
+                            clicked => { root.copy(root.curl, @tr("cURL copied")); }
+                        }
+                        Btn {
+                            icon: Icons.copy;
+                            text: @tr("Copy response");
+                            enabled: root.resp-text != "";
+                            clicked => { root.copy(root.resp-text, @tr("Response copied")); }
                         }
                     }
                 }
