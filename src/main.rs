@@ -227,6 +227,11 @@ fn lines(text: &str) -> Vec<Line> {
         .collect()
 }
 
+/// Raw view: the body exactly as received, one row per line, no colouring.
+fn plain(text: &str) -> Vec<Line> {
+    text.lines().map(|l| Line { key: SharedString::new(), value: l.into(), kind: 0 }).collect()
+}
+
 fn refresh(app: &App, st: &mut State) {
     let f = st.filter.to_lowercase();
     let hit = |i: &Item| f.is_empty() || i.req.as_ref().is_some_and(|r| r.name.to_lowercase().contains(&f) || r.url.to_lowercase().contains(&f) || r.method.to_lowercase().contains(&f));
@@ -485,7 +490,7 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
                         app.set_status_class(if code >= 400 { 4 } else if code >= 300 { 3 } else { 2 });
                         app.set_duration(ms.into());
                         app.set_size(size.into());
-                        app.set_resp_lines(ModelRc::new(VecModel::from(lines(if app.get_resp_view() == 1 { &raw } else { &body }))));
+                        app.set_resp_lines(ModelRc::new(VecModel::from(if app.get_resp_view() == 1 { plain(&raw) } else { lines(&body) })));
                         app.set_resp_text(body.into());
                         app.set_resp_raw(raw.into());
                         app.set_resp_headers(kv_model(&headers));
@@ -511,8 +516,8 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
     let w = app.as_weak();
     app.on_view_changed(move || {
         if let Some(app) = w.upgrade() {
-            let text = if app.get_resp_view() == 1 { app.get_resp_raw() } else { app.get_resp_text() };
-            app.set_resp_lines(ModelRc::new(VecModel::from(lines(&text))));
+            let rows = if app.get_resp_view() == 1 { plain(&app.get_resp_raw()) } else { lines(&app.get_resp_text()) };
+            app.set_resp_lines(ModelRc::new(VecModel::from(rows)));
         }
     });
 
