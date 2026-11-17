@@ -1,5 +1,9 @@
+// No console window behind the app on Windows; `attach_console` gives the command line its output back.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod history;
 mod http;
+mod plugin;
 mod run;
 mod snippet;
 
@@ -72,6 +76,7 @@ fn cli_run(args: &[String], bench: bool) -> i32 {
     };
     let dir = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
     let envs = run::environments(dir);
+    let plugins = plugin::files(dir);
     let env_vars = match &env {
         Some(n) => match envs.iter().find(|(k, _)| k == n) {
             Some((_, v)) => Some(v),
@@ -93,18 +98,22 @@ fn cli_run(args: &[String], bench: bool) -> i32 {
     let client = run::client();
     let mut failed = false;
     for r in todo {
-        let (req, missing) = http::resolve(r, &vars);
+        let (mut req, missing) = http::resolve(r, &vars);
         for m in missing {
             eprintln!("warning: variable {{{{{m}}}}} is not defined");
         }
         if bench {
+            // plugins shape the request once; their response hook is not part of a load test
+            plugin::run(&plugins, &mut req, None).iter().for_each(|l| eprintln!("{l}"));
             eprintln!("{} {}", req.method, req.url);
             let b = rt.block_on(run::bench(&client, &req, total, parallel.clamp(1, 1000)));
             println!("{}", run::bench_report(&b));
             failed |= b.failed > 0 || b.codes.keys().any(|&c| c >= 400);
             continue;
         }
-        match rt.block_on(run::send(&client, &req)) {
+        let (res, said) = rt.block_on(run::send_plugged(&client, &req, &plugins));
+        said.iter().for_each(|l| eprintln!("{l}"));
+        match res {
             Ok(resp) => {
                 eprintln!("{} {}  ->  {} {}  ({} ms, {})", req.method, req.url, resp.status, resp.reason, resp.ms, run::size(resp.body.len()));
                 println!("{}", run::display(&resp));
@@ -697,9 +706,10 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
         app.set_sent(sent.time.as_str().into());
         app.set_note(if missing.is_empty() { SharedString::new() } else { format!("{}: {}", t("Undefined variables", "Nicht definierte Variablen"), missing.join(", ")).into() });
         let id = TABS.with_borrow(|t| t.list[t.active].id);
+        let plugins = plugin::files(&st.dir);
         let (w, client) = (w.clone(), client.clone());
         handle.spawn(async move {
-            let res = run::send(&client, &req).await;
+            let (res, said) = run::send_plugged(&client, &req, &plugins).await;
             // Prepare the text off the window thread. ponytail: display is capped at 1 MB, larger bodies need a streaming viewer.
             let cap = |mut s: String| {
                 let cut = s.len() > 1_000_000;
@@ -724,8 +734,12 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
                 let Some(app) = w.upgrade() else { return };
                 HISTORY.with_borrow_mut(|h| history::add(h, sent));
                 show_history(&app);
-                if deliver(&app, id, &resp) && cut {
-                    app.set_note(t("Showing the first 1 MB", "Zeigt das erste MB").into());
+                if deliver(&app, id, &resp) {
+                    if cut {
+                        app.set_note(t("Showing the first 1 MB", "Zeigt das erste MB").into());
+                    } else if !said.is_empty() {
+                        app.set_note(said.join("  |  ").into());
+                    }
                 }
             });
         });
@@ -878,7 +892,18 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(windows)]
+fn attach_console() {
+    unsafe extern "system" {
+        fn AttachConsole(pid: u32) -> i32;
+    }
+    // ATTACH_PARENT_PROCESS: print into the terminal we were started from, if any
+    unsafe { AttachConsole(u32::MAX) };
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(windows)]
+    attach_console();
     let t0 = Instant::now();
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {

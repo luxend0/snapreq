@@ -46,6 +46,20 @@ pub async fn send(c: &reqwest::Client, r: &Request) -> Result<Response, String> 
     Ok(Response { status: status.as_u16(), reason: status.canonical_reason().unwrap_or("").to_string(), headers, body, ms: t.elapsed().as_millis() })
 }
 
+/// Like `send`, with the project's plugins around it. Also returns what the plugins said.
+pub async fn send_plugged(c: &reqwest::Client, r: &Request, plugins: &[std::path::PathBuf]) -> (Result<Response, String>, Vec<String>) {
+    if plugins.is_empty() {
+        return (send(c, r).await, vec![]);
+    }
+    let mut r = r.clone();
+    let mut said = crate::plugin::run(plugins, &mut r, None);
+    let res = send(c, &r).await;
+    if let Ok(resp) = &res {
+        said.extend(crate::plugin::run(plugins, &mut r, Some(resp)));
+    }
+    (res, said)
+}
+
 /// Environments from http-client.env.json and http-client.private.env.json (the JetBrains convention):
 /// `{ "dev": { "host": "http://localhost:3000" }, "prod": { ... } }`. Private values win.
 pub fn environments(dir: &Path) -> Vec<(String, HashMap<String, String>)> {
