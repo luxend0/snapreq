@@ -389,6 +389,13 @@ component SideRow {
             color: root.selected ? Theme.fg : Theme.muted;
             vertical-alignment: center;
             overflow: elide;
+            horizontal-stretch: 1;
+        }
+        if !root.e.header && root.e.sub != "": Text {
+            text: root.e.sub;
+            color: Theme.muted;
+            font-size: 11px;
+            vertical-alignment: center;
         }
     }
 }
@@ -426,6 +433,8 @@ export component App inherits Window {
 
     in property <string> project;
     in property <[Entry]> entries;
+    in property <[Entry]> history;
+    in-out property <int> side-tab;
     in-out property <int> current: -1;
     in property <[string]> envs;
     in-out property <string> env;
@@ -456,6 +465,7 @@ export component App inherits Window {
     in-out property <string> note;
 
     callback select(int);
+    callback history-select(int);
     callback send;
     callback save;
     callback new-request;
@@ -703,17 +713,31 @@ export component App inherits Window {
                                 clicked => { root.new-request(); }
                             }
                         }
-                        if root.entries.length == 0: Text {
-                            text: @tr("No requests here. Press + to create the first one.");
+                        HorizontalLayout {
+                            alignment: start;
+                            Seg {
+                                titles: [@tr("Requests"), @tr("History")];
+                                current <=> root.side-tab;
+                            }
+                        }
+                        if (root.side-tab == 0 ? root.entries.length : root.history.length) == 0: Text {
+                            text: root.side-tab == 0 ? @tr("No requests here. Press + to create the first one.") : @tr("Nothing sent yet.");
                             color: Theme.muted;
                             wrap: word-wrap;
                         }
-                        ListView {
+                        if root.side-tab == 0: ListView {
                             vertical-stretch: 1;
                             for e[i] in root.entries: SideRow {
                                 e: e;
                                 selected: i == root.current;
                                 clicked => { root.select(i); }
+                            }
+                        }
+                        if root.side-tab == 1: ListView {
+                            vertical-stretch: 1;
+                            for e[i] in root.history: SideRow {
+                                e: e;
+                                clicked => { root.history-select(i); }
                             }
                         }
                         if root.envs.length > 0: Rectangle {

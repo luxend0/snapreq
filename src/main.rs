@@ -1,3 +1,4 @@
+mod history;
 mod http;
 mod run;
 mod snippet;
@@ -263,14 +264,38 @@ fn select_item(app: &App, st: &State, item: Option<usize>) {
     let row = item.and_then(|n| st.shown.iter().position(|&x| x == n));
     app.set_current(row.map(|r| r as i32).unwrap_or(-1));
     if let Some(r) = item.and_then(|n| st.items[n].req.as_ref()) {
-        app.set_method(r.method.as_str().into());
-        app.set_url(r.url.as_str().into());
-        app.set_params(kv_model(&query_of(&r.url)));
-        app.set_headers(kv_model(&r.headers));
-        app.set_body(r.body.as_str().into());
+        fill(app, st, item, r);
         app.set_dirty(false);
-        app.set_snippets(snippets(&resolved(app, st, item).0));
     }
+}
+
+/// Puts a request into the editor.
+fn fill(app: &App, st: &State, item: Option<usize>, r: &http::Request) {
+    app.set_method(r.method.as_str().into());
+    app.set_url(r.url.as_str().into());
+    app.set_params(kv_model(&query_of(&r.url)));
+    app.set_headers(kv_model(&r.headers));
+    app.set_body(r.body.as_str().into());
+    app.set_snippets(snippets(&resolved(app, st, item).0));
+}
+
+thread_local! {
+    /// Only touched on the window thread.
+    static HISTORY: RefCell<Vec<history::Sent>> = const { RefCell::new(Vec::new()) };
+}
+
+fn show_history(app: &App) {
+    let rows: Vec<Entry> = HISTORY.with_borrow(|h| {
+        h.iter()
+            .map(|s| Entry {
+                label: s.req.url.split_once("://").map(|(_, u)| u).unwrap_or(&s.req.url).into(),
+                method: s.req.method.as_str().into(),
+                sub: if s.status == 0 { "ERR".into() } else { s.status.to_string().into() },
+                header: false,
+            })
+            .collect()
+    });
+    app.set_history(ModelRc::new(VecModel::from(rows)));
 }
 
 fn edited(app: &App, base: Option<&http::Request>) -> http::Request {
@@ -333,6 +358,9 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
         let first = s.items.iter().position(|i| i.req.is_some());
         select_item(&app, &s, first);
     }
+
+    HISTORY.set(history::load());
+    show_history(&app);
 
     // Requests run on one background thread; the window thread never blocks on the network.
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
@@ -451,7 +479,14 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
             return;
         }
         let st = s.borrow();
-        let (req, missing) = resolved(&app, &st, selected(&app, &st));
+        let cur = selected(&app, &st);
+        let (req, missing) = resolved(&app, &st, cur);
+        let mut sent = history::Sent {
+            file: cur.map(|n| st.items[n].file.to_string_lossy().into_owned()).unwrap_or_default(),
+            req: edited(&app, cur.and_then(|n| st.items[n].req.as_ref())),
+            status: 0,
+            time: now_text(),
+        };
         app.set_busy(true);
         app.set_snippets(snippets(&req));
         app.set_sent_url(req.url.as_str().into());
@@ -478,6 +513,9 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
             let _ = slint::invoke_from_event_loop(move || {
                 let Some(app) = w.upgrade() else { return };
                 app.set_busy(false);
+                sent.status = out.as_ref().map(|o| o.0).unwrap_or(0);
+                HISTORY.with_borrow_mut(|h| history::add(h, sent));
+                show_history(&app);
                 match out {
                     Ok((code, status, ms, size, body, raw, headers, cut)) => {
                         app.set_status(status.into());
@@ -507,6 +545,18 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
         });
     });
 
+    let (w, s) = (app.as_weak(), st.clone());
+    app.on_history_select(move |row| {
+        let (Some(app), st) = (w.upgrade(), s.borrow()) else { return };
+        let Some(h) = HISTORY.with_borrow(|h| h.get(row as usize).cloned()) else { return };
+        // back to the request it came from if that still exists, so its file variables and Save apply
+        let item = st.items.iter().position(|i| i.file.to_string_lossy() == h.file.as_str() && i.req.as_ref().is_some_and(|r| r.name == h.req.name));
+        app.set_current(item.and_then(|n| st.shown.iter().position(|&x| x == n)).map(|r| r as i32).unwrap_or(-1));
+        fill(&app, &st, item, &h.req);
+        let same = |r: &http::Request| (&r.method, &r.url, &r.headers, &r.body) == (&h.req.method, &h.req.url, &h.req.headers, &h.req.body);
+        app.set_dirty(item.and_then(|n| st.items[n].req.as_ref()).is_some_and(|r| !same(r)));
+    });
+
     let w = app.as_weak();
     app.on_view_changed(move || {
         if let Some(app) = w.upgrade() {
@@ -516,9 +566,24 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
     });
 
     app.show()?;
-    // SNAPREQ_AUTOSEND=1: send the selected request right away (for screenshots and checks).
+    // SNAPREQ_AUTOSEND=1: send the selected request right away (for screenshots and checks); =history also opens the history tab.
     if std::env::var_os("SNAPREQ_AUTOSEND").is_some() {
         app.invoke_send();
+        if std::env::var_os("SNAPREQ_AUTOSEND").is_some_and(|v| v == "history") {
+            app.set_side_tab(1);
+        }
+    }
+    // SNAPREQ_SHOT=file.ppm: write a picture of the window after 3 s, then quit (checks without touching the desktop).
+    if let Some(path) = std::env::var_os("SNAPREQ_SHOT") {
+        let w = app.as_weak();
+        slint::Timer::single_shot(Duration::from_secs(3), move || {
+            if let Some(Ok(img)) = w.upgrade().map(|a| a.window().take_snapshot()) {
+                let mut out = format!("P6 {} {} 255\n", img.width(), img.height()).into_bytes();
+                out.extend(img.as_slice().iter().flat_map(|p| [p.r, p.g, p.b]));
+                let _ = std::fs::write(&path, out);
+            }
+            let _ = slint::quit_event_loop();
+        });
     }
     // SNAPREQ_PERF=1: print startup time and memory, then quit.
     if std::env::var_os("SNAPREQ_PERF").is_some() {

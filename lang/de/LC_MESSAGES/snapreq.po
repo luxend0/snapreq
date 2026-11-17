@@ -98,3 +98,12 @@ msgstr "Bewegung an"
 
 msgid "Motion off"
 msgstr "Bewegung aus"
+
+msgid "Requests"
+msgstr "Anfragen"
+
+msgid "History"
+msgstr "Verlauf"
+
+msgid "Nothing sent yet."
+msgstr "Noch nichts gesendet."
