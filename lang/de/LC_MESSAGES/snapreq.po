@@ -75,11 +75,11 @@ msgstr "Code-Schnipsel"
 msgid "Quick actions"
 msgstr "Schnellaktionen"
 
-msgid "Copy as cURL"
-msgstr "Als cURL kopieren"
+msgid "Copy snippet"
+msgstr "Schnipsel kopieren"
 
-msgid "cURL copied"
-msgstr "cURL kopiert"
+msgid "Snippet copied"
+msgstr "Schnipsel kopiert"
 
 msgid "Environments"
 msgstr "Umgebungen"

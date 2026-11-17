@@ -450,7 +450,9 @@ export component App inherits Window {
     in property <string> resp-raw; // body exactly as received
     in-out property <int> resp-view; // 0 pretty, 1 raw
     in property <[KV]> resp-headers;
-    in property <string> curl;
+    in property <[string]> snippets;
+    in property <[string]> snippet-langs;
+    in-out property <int> snippet-lang;
     in-out property <string> note;
 
     callback select(int);
@@ -1031,23 +1033,21 @@ export component App inherits Window {
                             height: 1px;
                             background: Theme.line;
                         }
+                        Text {
+                            text: @tr("Code snippet");
+                            color: Theme.fg;
+                            font-size: 16px;
+                            font-weight: 700;
+                        }
                         HorizontalLayout {
-                            Text {
-                                text: @tr("Code snippet");
-                                color: Theme.fg;
-                                font-size: 16px;
-                                font-weight: 700;
-                                vertical-alignment: center;
-                                horizontal-stretch: 1;
-                            }
-                            Text {
-                                text: "cURL";
-                                color: Theme.muted;
-                                vertical-alignment: center;
+                            alignment: start;
+                            Seg {
+                                titles: root.snippet-langs;
+                                current <=> root.snippet-lang;
                             }
                         }
                         Rectangle {
-                            height: min(max(snippet.preferred-height + 24px, 80px), 220px);
+                            height: min(max(snippet.preferred-height + 24px, 80px), 320px);
                             border-radius: 4px;
                             border-width: 1px;
                             border-color: Theme.line;
@@ -1057,7 +1057,7 @@ export component App inherits Window {
                                 x: 12px;
                                 y: 12px;
                                 width: parent.width - 24px;
-                                text: root.curl;
+                                text: root.snippets[root.snippet-lang];
                                 color: Theme.fg;
                                 font-family: root.mono;
                                 font-size: 12px;
@@ -1074,9 +1074,9 @@ export component App inherits Window {
                         }
                         Btn {
                             icon: Icons.copy;
-                            text: @tr("Copy as cURL");
-                            enabled: root.curl != "";
-                            clicked => { root.copy(root.curl, @tr("cURL copied")); }
+                            text: @tr("Copy snippet");
+                            enabled: root.snippets.length > 0;
+                            clicked => { root.copy(root.snippets[root.snippet-lang], @tr("Snippet copied")); }
                         }
                         Btn {
                             icon: Icons.copy;

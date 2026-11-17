@@ -1,5 +1,6 @@
 mod http;
 mod run;
+mod snippet;
 
 use std::{
     cell::RefCell,
@@ -188,16 +189,8 @@ fn with_query(url: &str, params: &[(String, String)]) -> String {
     if q.is_empty() { format!("{base}{frag}") } else { format!("{base}?{q}{frag}") }
 }
 
-fn curl(r: &http::Request) -> String {
-    let q = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
-    let mut s = format!("curl -X {} {}", r.method, q(&r.url));
-    for (k, v) in &r.headers {
-        s += &format!(" \\\n  -H {}", q(&format!("{k}: {v}")));
-    }
-    if !r.body.is_empty() {
-        s += &format!(" \\\n  -d {}", q(&r.body));
-    }
-    s
+fn snippets(r: &http::Request) -> slint::ModelRc<SharedString> {
+    slint::ModelRc::new(slint::VecModel::from(snippet::all(r).map(SharedString::from).to_vec()))
 }
 
 /// Splits display text into lines with a colour class. Works on the indented JSON that
@@ -276,7 +269,7 @@ fn select_item(app: &App, st: &State, item: Option<usize>) {
         app.set_headers(kv_model(&r.headers));
         app.set_body(r.body.as_str().into());
         app.set_dirty(false);
-        app.set_curl(curl(&resolved(app, st, item).0).into());
+        app.set_snippets(snippets(&resolved(app, st, item).0));
     }
 }
 
@@ -325,6 +318,7 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
     }
     let app = App::new()?;
     app.set_mono(mono_font().into());
+    app.set_snippet_langs(slint::ModelRc::new(slint::VecModel::from(snippet::LANGS.map(SharedString::from).to_vec())));
     app.set_animated(std::env::var_os("SNAPREQ_STATIC").is_none());
     let envs = run::environments(&dir);
     app.set_project(dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| dir.display().to_string()).into());
@@ -459,7 +453,7 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
         let st = s.borrow();
         let (req, missing) = resolved(&app, &st, selected(&app, &st));
         app.set_busy(true);
-        app.set_curl(curl(&req).into());
+        app.set_snippets(snippets(&req));
         app.set_sent_url(req.url.as_str().into());
         app.set_sent(now_text().into());
         app.set_note(if missing.is_empty() { SharedString::new() } else { format!("{}: {}", t("Undefined variables", "Nicht definierte Variablen"), missing.join(", ")).into() });
