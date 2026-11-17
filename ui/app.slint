@@ -1,4 +1,4 @@
-import { ListView, LineEdit, TextEdit, ComboBox, Button, TabWidget, Palette } from "std-widgets.slint";
+import { ListView, LineEdit, TextEdit, ComboBox, Palette } from "std-widgets.slint";
 
 export struct Entry {
     label: string,
@@ -59,11 +59,68 @@ component Row {
     }
 }
 
+component Btn {
+    in property <string> text;
+    in property <bool> primary;
+    in property <bool> enabled: true;
+    callback clicked;
+    height: 32px;
+    min-width: label.preferred-width + 28px;
+    horizontal-stretch: 0;
+    accessible-role: button;
+    accessible-label: text;
+    accessible-enabled: enabled;
+    accessible-action-default => { if (root.enabled) { root.clicked(); } }
+    ta := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+    Rectangle {
+        border-radius: 6px;
+        background: root.primary ? Theme.accent : (ta.has-hover ? Theme.hover : transparent);
+        border-width: root.primary ? 0px : 1px;
+        border-color: Theme.line;
+        opacity: root.enabled ? (ta.pressed ? 0.8 : 1) : 0.4;
+    }
+    label := Text {
+        text: root.text;
+        color: root.primary ? #ffffff : Theme.fg;
+        font-weight: 600;
+        opacity: root.enabled ? 1 : 0.5;
+    }
+}
+
+component Tabs {
+    in property <[string]> titles;
+    in-out property <int> current;
+    height: 30px;
+    HorizontalLayout {
+        alignment: start;
+        spacing: 4px;
+        for title[i] in root.titles: Rectangle {
+            width: tab-label.preferred-width + 24px;
+            border-radius: 6px;
+            background: i == root.current ? Theme.hover : transparent;
+            accessible-role: tab;
+            accessible-label: title;
+            accessible-action-default => { root.current = i; }
+            TouchArea {
+                clicked => { root.current = i; }
+            }
+            tab-label := Text {
+                text: title;
+                color: i == root.current ? Theme.fg : Theme.muted;
+                font-weight: i == root.current ? 700 : 400;
+            }
+        }
+    }
+}
+
 export component App inherits Window {
     title: "Snapreq";
     icon: @image-url("../assets/snapreq.svg");
-    min-width: 860px;
-    min-height: 560px;
+    min-width: 640px;
+    min-height: 420px;
     preferred-width: 1240px;
     preferred-height: 800px;
     background: Theme.bg;
@@ -95,7 +152,9 @@ export component App inherits Window {
     callback new-request;
     callback env-selected(string);
 
-    property <string> mono: "monospace";
+    in property <string> mono: "monospace";
+    property <int> req-tab;
+    property <int> resp-tab;
 
     function keys(e: KeyEvent) -> EventResult {
         if (e.modifiers.control && e.text == Key.Return) {
@@ -128,7 +187,7 @@ export component App inherits Window {
 
             // sidebar: files and their requests
             Rectangle {
-                width: 280px;
+                width: 240px;
                 background: Theme.panel;
                 border-radius: 8px;
                 VerticalLayout {
@@ -144,7 +203,7 @@ export component App inherits Window {
                             overflow: elide;
                             horizontal-stretch: 1;
                         }
-                        Button {
+                        Btn {
                             text: @tr("New");
                             clicked => { root.new-request(); }
                         }
@@ -201,41 +260,38 @@ export component App inherits Window {
                                 accepted => { root.send(); }
                                 key-pressed(e) => { root.keys(e) }
                             }
-                            Button {
+                            Btn {
                                 text: root.busy ? @tr("Sending…") : @tr("Send");
                                 primary: true;
                                 enabled: !root.busy && root.url != "";
                                 clicked => { root.send(); }
                             }
-                            Button {
+                            Btn {
                                 text: @tr("Save");
                                 enabled: root.dirty && root.current >= 0;
                                 clicked => { root.save(); }
                             }
                         }
-                        TabWidget {
-                            Tab {
-                                title: @tr("Body");
-                                TextEdit {
-                                    text <=> root.body;
-                                    font-family: root.mono;
-                                    wrap: no-wrap;
-                                    placeholder-text: "{\n  \"key\": \"value\"\n}";
-                                    edited => { root.dirty = true; }
-                                    key-pressed(e) => { root.keys(e) }
-                                }
-                            }
-                            Tab {
-                                title: @tr("Headers");
-                                TextEdit {
-                                    text <=> root.headers;
-                                    font-family: root.mono;
-                                    wrap: no-wrap;
-                                    placeholder-text: "Content-Type: application/json\nAuthorization: Bearer {{token}}";
-                                    edited => { root.dirty = true; }
-                                    key-pressed(e) => { root.keys(e) }
-                                }
-                            }
+                        Tabs {
+                            titles: [@tr("Body"), @tr("Headers")];
+                            current <=> root.req-tab;
+                        }
+                        if root.req-tab == 0: TextEdit {
+                            vertical-stretch: 1;
+                            text <=> root.body;
+                            font-family: root.mono;
+                            wrap: no-wrap;
+                            edited => { root.dirty = true; }
+                            key-pressed(e) => { root.keys(e) }
+                        }
+                        if root.req-tab == 1: TextEdit {
+                            vertical-stretch: 1;
+                            text <=> root.headers;
+                            font-family: root.mono;
+                            wrap: no-wrap;
+                            placeholder-text: "Content-Type: application/json\nAuthorization: Bearer {{token}}";
+                            edited => { root.dirty = true; }
+                            key-pressed(e) => { root.keys(e) }
                         }
                     }
                 }
@@ -271,28 +327,18 @@ export component App inherits Window {
                                 overflow: elide;
                             }
                         }
-                        TabWidget {
-                            Tab {
-                                title: @tr("Body");
-                                TextEdit {
-                                    text: root.resp-body;
-                                    read-only: true;
-                                    font-family: root.mono;
-                                    wrap: no-wrap;
-                                    placeholder-text: @tr("Press Ctrl+Enter to send the request.");
-                                    key-pressed(e) => { root.keys(e) }
-                                }
-                            }
-                            Tab {
-                                title: @tr("Headers");
-                                TextEdit {
-                                    text: root.resp-headers;
-                                    read-only: true;
-                                    font-family: root.mono;
-                                    wrap: no-wrap;
-                                    key-pressed(e) => { root.keys(e) }
-                                }
-                            }
+                        Tabs {
+                            titles: [@tr("Body"), @tr("Headers")];
+                            current <=> root.resp-tab;
+                        }
+                        TextEdit {
+                            vertical-stretch: 1;
+                            text: root.resp-tab == 0 ? root.resp-body : root.resp-headers;
+                            read-only: true;
+                            font-family: root.mono;
+                            wrap: no-wrap;
+                            placeholder-text: @tr("Press Ctrl+Enter to send the request.");
+                            key-pressed(e) => { root.keys(e) }
                         }
                     }
                 }

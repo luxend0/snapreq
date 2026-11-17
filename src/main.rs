@@ -182,6 +182,12 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
         let _ = slint::select_bundled_translation("de");
     }
     let app = App::new()?;
+    // Slint does not resolve the generic "monospace" alias; ask fontconfig for the real family.
+    if let Ok(o) = std::process::Command::new("fc-match").args(["monospace", "family"]).output() {
+        if let Some(f) = String::from_utf8_lossy(&o.stdout).split(',').next().map(str::trim).filter(|f| !f.is_empty()) {
+            app.set_mono(f.into());
+        }
+    }
     let envs = run::environments(&dir);
     app.set_project(dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| dir.display().to_string()).into());
     app.set_envs(ModelRc::new(VecModel::from(envs.iter().map(|(n, _)| SharedString::from(n.as_str())).collect::<Vec<_>>())));
@@ -312,6 +318,10 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
     });
 
     app.show()?;
+    // SNAPREQ_AUTOSEND=1: send the selected request right away (for screenshots and checks).
+    if std::env::var_os("SNAPREQ_AUTOSEND").is_some() {
+        app.invoke_send();
+    }
     // SNAPREQ_PERF=1: print startup time and memory, then quit (for scripts/perf.sh).
     if std::env::var_os("SNAPREQ_PERF").is_some() {
         println!("show_ms {:.1}", t0.elapsed().as_secs_f64() * 1000.0);
