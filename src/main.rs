@@ -22,6 +22,9 @@ USAGE:
   snapreq run FILE.http [-e ENV] [-n NAME]
                                          send the requests of a file in the terminal;
                                          exit code 1 if one fails or returns status >= 400
+  snapreq bench FILE.http [-e ENV] [-n NAME] [-r REQUESTS] [-c PARALLEL]
+                                         load test: send each request REQUESTS times (default 200),
+                                         PARALLEL at once (default 10), print latency and status counts
 OPTIONS:
   -e, --env ENV     environment from http-client.env.json
   -n, --name NAME   only the request with this name
@@ -42,14 +45,17 @@ fn vars_for(file: &http::File, env: Option<&HashMap<String, String>>) -> HashMap
     vars
 }
 
-fn cli_run(args: &[String]) -> i32 {
+fn cli_run(args: &[String], bench: bool) -> i32 {
     let mut file = None;
     let (mut env, mut name) = (None, None);
+    let (mut total, mut parallel) = (200usize, 10usize);
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "-e" | "--env" => env = it.next().cloned(),
             "-n" | "--name" => name = it.next().cloned(),
+            "-r" | "--requests" if bench => total = it.next().and_then(|v| v.parse().ok()).unwrap_or(total),
+            "-c" | "--parallel" if bench => parallel = it.next().and_then(|v| v.parse().ok()).unwrap_or(parallel),
             _ => file = Some(PathBuf::from(a)),
         }
     }
@@ -90,6 +96,13 @@ fn cli_run(args: &[String]) -> i32 {
         let (req, missing) = http::resolve(r, &vars);
         for m in missing {
             eprintln!("warning: variable {{{{{m}}}}} is not defined");
+        }
+        if bench {
+            eprintln!("{} {}", req.method, req.url);
+            let b = rt.block_on(run::bench(&client, &req, total, parallel.clamp(1, 1000)));
+            println!("{}", run::bench_report(&b));
+            failed |= b.failed > 0 || b.codes.keys().any(|&c| c >= 400);
+            continue;
         }
         match rt.block_on(run::send(&client, &req)) {
             Ok(resp) => {
@@ -431,6 +444,24 @@ fn show_tabs(app: &App, st: &State) {
     });
 }
 
+/// Hands a response to the tab that asked for it, even if another one is in front by now.
+/// Returns whether it is the one in front.
+fn deliver(app: &App, id: u32, resp: &Resp) -> bool {
+    let front = TABS.with_borrow_mut(|t| {
+        let front = t.list[t.active].id == id;
+        if let Some(tab) = t.list.iter_mut().find(|x| x.id == id) {
+            tab.busy = false;
+            tab.resp = resp.clone();
+        }
+        front
+    });
+    if front {
+        app.set_busy(false);
+        show_resp(app, resp);
+    }
+    front
+}
+
 fn switch_tab(app: &App, st: &State, to: usize) {
     let tab = TABS.with_borrow_mut(|t| {
         let a = t.active;
@@ -521,6 +552,7 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
     let handle = rt.handle().clone();
     std::thread::Builder::new().name("net".into()).spawn(move || rt.block_on(std::future::pending::<()>()))?;
     let client = run::client();
+    let (client2, handle2) = (client.clone(), handle.clone());
 
     let (w, s) = (app.as_weak(), st.clone());
     app.on_select(move |row| {
@@ -692,21 +724,37 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
                 let Some(app) = w.upgrade() else { return };
                 HISTORY.with_borrow_mut(|h| history::add(h, sent));
                 show_history(&app);
-                // the response belongs to the tab that sent it, even if another one is in front by now
-                let front = TABS.with_borrow_mut(|t| {
-                    let front = t.list[t.active].id == id;
-                    if let Some(tab) = t.list.iter_mut().find(|x| x.id == id) {
-                        tab.busy = false;
-                        tab.resp = resp.clone();
-                    }
-                    front
-                });
-                if front {
-                    app.set_busy(false);
-                    show_resp(&app, &resp);
-                    if cut {
-                        app.set_note(t("Showing the first 1 MB", "Zeigt das erste MB").into());
-                    }
+                if deliver(&app, id, &resp) && cut {
+                    app.set_note(t("Showing the first 1 MB", "Zeigt das erste MB").into());
+                }
+            });
+        });
+    });
+
+    let (w, s) = (app.as_weak(), st.clone());
+    app.on_bench(move || {
+        let Some(app) = w.upgrade() else { return };
+        if app.get_busy() || app.get_url().trim().is_empty() {
+            return;
+        }
+        let st = s.borrow();
+        let (req, _) = resolved(&app, &st, selected(&app, &st));
+        let total = app.get_bench_total().trim().parse::<usize>().unwrap_or(200).clamp(1, 100_000);
+        let parallel = app.get_bench_parallel().trim().parse::<usize>().unwrap_or(10).clamp(1, 256);
+        app.set_busy(true);
+        app.set_sent_url(req.url.as_str().into());
+        let time = now_text();
+        app.set_sent(time.as_str().into());
+        let id = TABS.with_borrow(|t| t.list[t.active].id);
+        let (w, client) = (w.clone(), client2.clone());
+        handle2.spawn(async move {
+            let b = run::bench(&client, &req, total, parallel).await;
+            let bad = b.failed > 0 || b.codes.keys().any(|&c| c >= 400);
+            let text = run::bench_report(&b);
+            let resp = Resp { status: t("Load test", "Lasttest").into(), class: if bad { 4 } else { 2 }, duration: format!("{:.2} s", b.secs), sent: time, sent_url: req.url, raw: text.clone(), text, ..Default::default() };
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(app) = w.upgrade() {
+                    deliver(&app, id, &resp);
                 }
             });
         });
@@ -782,7 +830,12 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
 
     app.show()?;
     // SNAPREQ_AUTOSEND=1: send the selected request right away (for screenshots and checks); =history also opens the history tab.
-    if std::env::var_os("SNAPREQ_AUTOSEND").is_some() {
+    // =bench: run a small load test instead of a single request
+    if std::env::var_os("SNAPREQ_AUTOSEND").is_some_and(|v| v == "bench") {
+        app.set_bench_total("20".into());
+        app.set_bench_parallel("4".into());
+        app.invoke_bench();
+    } else if std::env::var_os("SNAPREQ_AUTOSEND").is_some() {
         app.invoke_send();
         if std::env::var_os("SNAPREQ_AUTOSEND").is_some_and(|v| v == "history") {
             app.set_side_tab(1);
@@ -831,7 +884,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match args.first().map(String::as_str) {
         Some("-h" | "--help") => println!("{HELP}"),
         Some("-V" | "--version") => println!("snapreq {}", env!("CARGO_PKG_VERSION")),
-        Some("run") => std::process::exit(cli_run(&args[1..])),
+        Some(cmd @ ("run" | "bench")) => std::process::exit(cli_run(&args[1..], cmd == "bench")),
         dir => {
             let dir = PathBuf::from(dir.unwrap_or("."));
             let dir = dir.canonicalize().map_err(|e| format!("{}: {e}", dir.display()))?;

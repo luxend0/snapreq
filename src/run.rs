@@ -1,5 +1,10 @@
 //! Sending requests and loading environments. Used by both the window and the command line.
-use std::{collections::HashMap, path::Path, time::{Duration, Instant}};
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::Path,
+    sync::{atomic::{AtomicUsize, Ordering}, Arc},
+    time::{Duration, Instant},
+};
 
 use crate::http::Request;
 
@@ -82,4 +87,92 @@ pub fn display(r: &Response) -> String {
         }
     }
     text.to_string()
+}
+
+/// Result of a load test. Latencies are in milliseconds, sorted.
+#[derive(Default)]
+pub struct Bench {
+    pub parallel: usize,
+    pub secs: f64,
+    pub lat: Vec<u128>,
+    pub failed: usize,
+    pub codes: BTreeMap<u16, usize>,
+    pub first_error: String,
+}
+
+/// Sends the request `total` times, `parallel` at once.
+pub async fn bench(c: &reqwest::Client, r: &Request, total: usize, parallel: usize) -> Bench {
+    let parallel = parallel.clamp(1, total.max(1));
+    let left = Arc::new(AtomicUsize::new(total));
+    let t = Instant::now();
+    let workers: Vec<_> = (0..parallel)
+        .map(|_| {
+            let (c, r, left) = (c.clone(), r.clone(), left.clone());
+            tokio::spawn(async move {
+                let mut out = Vec::new();
+                // take one from the shared budget per request
+                while left.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_sub(1)).is_ok() {
+                    out.push(send(&c, &r).await.map(|x| (x.status, x.ms)));
+                }
+                out
+            })
+        })
+        .collect();
+    let mut b = Bench { parallel, ..Default::default() };
+    for w in workers {
+        for res in w.await.unwrap_or_default() {
+            match res {
+                Ok((code, ms)) => {
+                    *b.codes.entry(code).or_default() += 1;
+                    b.lat.push(ms);
+                }
+                Err(e) => {
+                    b.failed += 1;
+                    if b.first_error.is_empty() {
+                        b.first_error = e;
+                    }
+                }
+            }
+        }
+    }
+    b.secs = t.elapsed().as_secs_f64();
+    b.lat.sort_unstable();
+    b
+}
+
+/// Nearest-rank percentile of a sorted list.
+fn pct(sorted: &[u128], p: usize) -> u128 {
+    if sorted.is_empty() { 0 } else { sorted[((sorted.len() * p).div_ceil(100)).clamp(1, sorted.len()) - 1] }
+}
+
+pub fn bench_report(b: &Bench) -> String {
+    let n = b.lat.len() + b.failed;
+    let mut s = format!("{n} requests, {} parallel, {:.2} s\n{:.1} requests/s, {} failed\n", b.parallel, b.secs, if b.secs > 0.0 { n as f64 / b.secs } else { 0.0 }, b.failed);
+    if !b.lat.is_empty() {
+        let avg = b.lat.iter().sum::<u128>() / b.lat.len() as u128;
+        s += &format!("\nLatency (ms)\n  min     {}\n  average {avg}\n  median  {}\n  p95     {}\n  p99     {}\n  max     {}\n", b.lat[0], pct(&b.lat, 50), pct(&b.lat, 95), pct(&b.lat, 99), b.lat[b.lat.len() - 1]);
+        s += "\nStatus\n";
+        for (code, count) in &b.codes {
+            s += &format!("  {code}     {count}\n");
+        }
+    }
+    if !b.first_error.is_empty() {
+        s += &format!("\nFirst error: {}\n", b.first_error);
+    }
+    s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn percentiles_and_report() {
+        let lat: Vec<u128> = (1..=100).collect();
+        assert_eq!((pct(&lat, 50), pct(&lat, 95), pct(&lat, 99), pct(&lat, 100)), (50, 95, 99, 100));
+        assert_eq!((pct(&[7], 50), pct(&[7], 99), pct(&[], 50)), (7, 7, 0));
+        let b = Bench { parallel: 4, secs: 2.0, lat, failed: 100, codes: BTreeMap::from([(200, 90), (500, 10)]), first_error: "refused".into() };
+        let r = bench_report(&b);
+        assert!(r.contains("200 requests, 4 parallel") && r.contains("100.0 requests/s, 100 failed") && r.contains("p95     95") && r.contains("500     10") && r.contains("First error: refused"));
+    }
 }

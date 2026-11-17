@@ -113,3 +113,9 @@ msgstr "Reiter schließen"
 
 msgid "New tab"
 msgstr "Neuer Reiter"
+
+msgid "Parallel"
+msgstr "Parallel"
+
+msgid "Load test"
+msgstr "Lasttest"

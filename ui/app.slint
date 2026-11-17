@@ -465,12 +465,15 @@ export component App inherits Window {
     in property <[string]> snippet-langs;
     in-out property <int> snippet-lang;
     in-out property <string> note;
+    in-out property <string> bench-total: "200";
+    in-out property <string> bench-parallel: "10";
 
     callback select(int);
     callback history-select(int);
     callback tab-select(int);
     callback tab-close(int);
     callback tab-new;
+    callback bench;
     callback send;
     callback save;
     callback new-request;
@@ -1184,6 +1187,32 @@ export component App inherits Window {
                             text: @tr("Copy snippet");
                             enabled: root.snippets.length > 0;
                             clicked => { root.copy(root.snippets[root.snippet-lang], @tr("Snippet copied")); }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            LineEdit {
+                                text <=> root.bench-total;
+                                input-type: number;
+                                horizontal-stretch: 1;
+                                accessible-label: @tr("Requests");
+                            }
+                            Text {
+                                text: "x";
+                                color: Theme.muted;
+                                vertical-alignment: center;
+                            }
+                            LineEdit {
+                                text <=> root.bench-parallel;
+                                input-type: number;
+                                width: 64px;
+                                accessible-label: @tr("Parallel");
+                            }
+                            Btn {
+                                icon: Icons.bolt;
+                                text: @tr("Load test");
+                                enabled: !root.busy && root.url != "";
+                                clicked => { root.bench(); }
+                            }
                         }
                         Btn {
                             icon: Icons.copy;
