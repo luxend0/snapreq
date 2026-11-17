@@ -33,7 +33,8 @@ mkdir -p "$BIN"
 install -m 755 "$tmp/snapreq" "$BIN/snapreq"
 if [ "$os" = Linux ]; then
     mkdir -p "$APPS" "$ICONS"
-    install -m 644 "$tmp/snapreq.desktop" "$APPS/snapreq.desktop"
+    # full path: desktop launchers often start without ~/.local/bin in PATH
+    sed "s|^Exec=snapreq|Exec=$BIN/snapreq|" "$tmp/snapreq.desktop" > "$APPS/snapreq.desktop"
     install -m 644 "$tmp/snapreq.svg" "$ICONS/snapreq.svg"
 fi
 

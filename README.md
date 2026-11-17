@@ -22,7 +22,7 @@ irm https://raw.githubusercontent.com/luxend0/snapreq/main/install.ps1 | iex
 
 Arch Linux: `packaging/PKGBUILD` builds `snapreq-git`.
 
-Developed and tested on Linux. The Windows build compiles and passes the tests in CI but has not been tried by hand yet; a macOS build is not available yet.
+Developed and tested on Linux. The Windows and macOS builds compile and pass the tests in CI but have not been tried by hand yet.
 
 From source: `cargo build --release`.
 
