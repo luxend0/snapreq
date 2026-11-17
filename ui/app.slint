@@ -1,0 +1,302 @@
+import { ListView, LineEdit, TextEdit, ComboBox, Button, TabWidget, Palette } from "std-widgets.slint";
+
+export struct Entry {
+    label: string,
+    method: string,
+    header: bool, // a file name row, not a request
+}
+
+export global Theme {
+    out property <bool> dark: Palette.color-scheme != ColorScheme.light;
+    out property <color> bg: dark ? #0a0a0a : #f6f6f6;
+    out property <color> panel: dark ? #121212 : #ffffff;
+    out property <color> hover: dark ? #1d1d1d : #ececec;
+    out property <color> line: dark ? #262626 : #e0e0e0;
+    out property <color> fg: dark ? #f3f3f3 : #121212;
+    out property <color> muted: dark ? #8c8c8c : #686868;
+    out property <color> accent: dark ? #e0662f : #b9501f;
+    out property <color> ok: dark ? #4cc38a : #18794e;
+    out property <color> bad: dark ? #ff6369 : #cd2b31;
+}
+
+component Row {
+    in property <Entry> e;
+    in property <bool> selected;
+    callback clicked;
+    height: e.header ? 30px : 34px;
+    accessible-role: list-item;
+    accessible-label: e.header ? e.label : e.method + " " + e.label;
+    accessible-action-default => { root.clicked(); }
+    ta := TouchArea {
+        enabled: !root.e.header;
+        clicked => { root.clicked(); }
+    }
+    Rectangle {
+        border-radius: 6px;
+        background: root.selected ? Theme.hover : (ta.has-hover ? Theme.hover : transparent);
+    }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 8px;
+        if !root.e.header: Text {
+            width: 52px;
+            text: root.e.method;
+            color: Theme.accent;
+            font-size: 11px;
+            font-weight: 700;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Text {
+            text: root.e.label;
+            color: root.e.header ? Theme.muted : Theme.fg;
+            font-size: root.e.header ? 12px : 14px;
+            font-weight: root.e.header ? 700 : 400;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+export component App inherits Window {
+    title: "Snapreq";
+    icon: @image-url("../assets/snapreq.svg");
+    min-width: 860px;
+    min-height: 560px;
+    preferred-width: 1240px;
+    preferred-height: 800px;
+    background: Theme.bg;
+    default-font-size: 14px;
+
+    in property <string> project;
+    in property <[Entry]> entries;
+    in-out property <int> current: -1;
+    in property <[string]> envs;
+    in-out property <string> env;
+
+    in-out property <string> method: "GET";
+    in-out property <string> url;
+    in-out property <string> headers;
+    in-out property <string> body;
+    in-out property <bool> dirty;
+
+    in property <bool> busy;
+    in property <string> status; // "200 OK"
+    in property <int> status-class; // 0 none, 2 ok, 3 redirect, 4 error
+    in property <string> meta; // "123 ms · 4.2 kB"
+    in property <string> resp-body;
+    in property <string> resp-headers;
+    in property <string> note;
+
+    callback select(int);
+    callback send;
+    callback save;
+    callback new-request;
+    callback env-selected(string);
+
+    property <string> mono: "monospace";
+
+    function keys(e: KeyEvent) -> EventResult {
+        if (e.modifiers.control && e.text == Key.Return) {
+            root.send();
+            return accept;
+        }
+        if (e.modifiers.control && e.text == "s") {
+            root.save();
+            return accept;
+        }
+        if (e.modifiers.control && e.text == "n") {
+            root.new-request();
+            return accept;
+        }
+        if (e.modifiers.control && e.text == "l") {
+            url-edit.focus();
+            url-edit.select-all();
+            return accept;
+        }
+        return reject;
+    }
+
+    forward-focus: scope;
+    scope := FocusScope {
+        key-pressed(e) => { root.keys(e) }
+
+        HorizontalLayout {
+            padding: 8px;
+            spacing: 8px;
+
+            // sidebar: files and their requests
+            Rectangle {
+                width: 280px;
+                background: Theme.panel;
+                border-radius: 8px;
+                VerticalLayout {
+                    padding: 8px;
+                    spacing: 6px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: root.project;
+                            color: Theme.fg;
+                            font-weight: 700;
+                            vertical-alignment: center;
+                            overflow: elide;
+                            horizontal-stretch: 1;
+                        }
+                        Button {
+                            text: @tr("New");
+                            clicked => { root.new-request(); }
+                        }
+                    }
+                    if root.envs.length > 0: ComboBox {
+                        model: root.envs;
+                        current-value <=> root.env;
+                        accessible-label: @tr("Environment");
+                        selected(v) => { root.env-selected(v); }
+                    }
+                    if root.entries.length == 0: Text {
+                        text: @tr("No .http files in this folder yet. Press New to create the first request.");
+                        color: Theme.muted;
+                        wrap: word-wrap;
+                    }
+                    ListView {
+                        vertical-stretch: 1;
+                        for e[i] in root.entries: Row {
+                            e: e;
+                            selected: i == root.current;
+                            clicked => { root.select(i); }
+                        }
+                    }
+                }
+            }
+
+            VerticalLayout {
+                spacing: 8px;
+                horizontal-stretch: 1;
+
+                // request
+                Rectangle {
+                    background: Theme.panel;
+                    border-radius: 8px;
+                    vertical-stretch: 2;
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 10px;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            ComboBox {
+                                width: 120px;
+                                model: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
+                                current-value <=> root.method;
+                                accessible-label: @tr("Method");
+                                selected => { root.dirty = true; }
+                            }
+                            url-edit := LineEdit {
+                                text <=> root.url;
+                                placeholder-text: "https://api.example.com/users";
+                                font-family: root.mono;
+                                accessible-label: "URL";
+                                edited => { root.dirty = true; }
+                                accepted => { root.send(); }
+                                key-pressed(e) => { root.keys(e) }
+                            }
+                            Button {
+                                text: root.busy ? @tr("Sending…") : @tr("Send");
+                                primary: true;
+                                enabled: !root.busy && root.url != "";
+                                clicked => { root.send(); }
+                            }
+                            Button {
+                                text: @tr("Save");
+                                enabled: root.dirty && root.current >= 0;
+                                clicked => { root.save(); }
+                            }
+                        }
+                        TabWidget {
+                            Tab {
+                                title: @tr("Body");
+                                TextEdit {
+                                    text <=> root.body;
+                                    font-family: root.mono;
+                                    wrap: no-wrap;
+                                    placeholder-text: "{\n  \"key\": \"value\"\n}";
+                                    edited => { root.dirty = true; }
+                                    key-pressed(e) => { root.keys(e) }
+                                }
+                            }
+                            Tab {
+                                title: @tr("Headers");
+                                TextEdit {
+                                    text <=> root.headers;
+                                    font-family: root.mono;
+                                    wrap: no-wrap;
+                                    placeholder-text: "Content-Type: application/json\nAuthorization: Bearer {{token}}";
+                                    edited => { root.dirty = true; }
+                                    key-pressed(e) => { root.keys(e) }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // response
+                Rectangle {
+                    background: Theme.panel;
+                    border-radius: 8px;
+                    vertical-stretch: 3;
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 10px;
+                        HorizontalLayout {
+                            spacing: 12px;
+                            height: 22px;
+                            Text {
+                                text: root.status == "" ? @tr("Response") : root.status;
+                                color: root.status-class == 2 ? Theme.ok : (root.status-class == 4 ? Theme.bad : Theme.fg);
+                                font-weight: 700;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                text: root.meta;
+                                color: Theme.muted;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                text: root.note;
+                                color: Theme.accent;
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
+                                horizontal-alignment: right;
+                                overflow: elide;
+                            }
+                        }
+                        TabWidget {
+                            Tab {
+                                title: @tr("Body");
+                                TextEdit {
+                                    text: root.resp-body;
+                                    read-only: true;
+                                    font-family: root.mono;
+                                    wrap: no-wrap;
+                                    placeholder-text: @tr("Press Ctrl+Enter to send the request.");
+                                    key-pressed(e) => { root.keys(e) }
+                                }
+                            }
+                            Tab {
+                                title: @tr("Headers");
+                                TextEdit {
+                                    text: root.resp-headers;
+                                    read-only: true;
+                                    font-family: root.mono;
+                                    wrap: no-wrap;
+                                    key-pressed(e) => { root.keys(e) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

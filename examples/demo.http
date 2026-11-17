@@ -1,0 +1,14 @@
+@host = https://httpbin.org
+
+### Get JSON
+GET {{host}}/json
+Accept: application/json
+
+### Post JSON
+POST {{host}}/post
+Content-Type: application/json
+
+{
+  "name": "snapreq",
+  "fast": true
+}

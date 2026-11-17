@@ -1,0 +1,23 @@
+[package]
+name = "snapreq"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+description = "Fast, lightweight API client. Requests are plain .http files."
+repository = "https://github.com/luxend0/snapreq"
+
+[dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "http2", "gzip", "brotli", "deflate"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+slint = { version = "1.19", default-features = false, features = ["std", "backend-winit", "renderer-software", "software-renderer-systemfonts", "software-renderer-path", "compat-1-2", "accessibility"] }
+tokio = { version = "1", features = ["rt", "time"] }
+
+[build-dependencies]
+slint-build = "1.19"
+
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

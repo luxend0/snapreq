@@ -1,0 +1,37 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: de\n"
+
+msgid "New"
+msgstr "Neu"
+
+msgid "Environment"
+msgstr "Umgebung"
+
+msgid "No .http files in this folder yet. Press New to create the first request."
+msgstr "Noch keine .http-Dateien in diesem Ordner. Mit Neu legst du die erste Anfrage an."
+
+msgid "Method"
+msgstr "Methode"
+
+msgid "Sending…"
+msgstr "Sendet…"
+
+msgid "Send"
+msgstr "Senden"
+
+msgid "Save"
+msgstr "Speichern"
+
+msgid "Body"
+msgstr "Body"
+
+msgid "Headers"
+msgstr "Header"
+
+msgid "Response"
+msgstr "Antwort"
+
+msgid "Press Ctrl+Enter to send the request."
+msgstr "Strg+Enter sendet die Anfrage."
