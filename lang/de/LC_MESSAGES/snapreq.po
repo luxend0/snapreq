@@ -80,3 +80,15 @@ msgstr "Als cURL kopieren"
 
 msgid "cURL copied"
 msgstr "cURL kopiert"
+
+msgid "Environments"
+msgstr "Umgebungen"
+
+msgid "Query Params"
+msgstr "Query-Parameter"
+
+msgid "Pretty"
+msgstr "Formatiert"
+
+msgid "Raw"
+msgstr "Roh"

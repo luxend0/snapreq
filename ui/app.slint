@@ -21,25 +21,26 @@ export struct Line {
 
 export global Theme {
     out property <bool> dark: Palette.color-scheme != ColorScheme.light;
-    out property <brush> backdrop: dark ? @linear-gradient(135deg, #07060d 0%, #120e26 45%, #2b1a6b 100%) : @linear-gradient(135deg, #f4f2ff 0%, #e9e4ff 100%);
-    out property <color> panel: dark ? #13112299 : #ffffffd9;
-    out property <color> raised: dark ? #1c1933 : #f3f0ff;
-    out property <color> hover: dark ? #262245 : #e8e2ff;
-    out property <color> line: dark ? #2c2850 : #d6cfee;
-    out property <color> fg: dark ? #efedff : #17132b;
-    out property <color> muted: dark ? #9a96b8 : #615c80;
-    out property <color> accent: dark ? #7c5cff : #6842f5;
-    out property <color> accent-soft: dark ? #7c5cff33 : #6842f522;
+    out property <color> panel: dark ? #0b0a12d9 : #ffffffd9;
+    out property <color> raised: dark ? #ffffff08 : #f3f0ff;
+    out property <color> hover: dark ? #ffffff10 : #e8e2ff;
+    out property <color> line: dark ? #ffffff17 : #d6cfee;
+    out property <color> fg: dark ? #e9e6f2 : #17132b;
+    out property <color> muted: dark ? #8a8699 : #615c80;
+    out property <color> accent: dark ? #b7a6f5 : #5b3fd6;
+    out property <color> on-accent: dark ? #0d0b16 : #ffffff;
+    out property <color> accent-soft: dark ? #b7a6f51f : #5b3fd61c;
+
     out property <color> ok: dark ? #3ddc97 : #107a4d;
     out property <color> ok-soft: dark ? #3ddc9726 : #107a4d1f;
     out property <color> bad: dark ? #ff6b81 : #c4263e;
     out property <color> bad-soft: dark ? #ff6b8126 : #c4263e1f;
-    out property <color> c-key: dark ? #8fd3ff : #0b62a8;
-    out property <color> c-string: dark ? #f0d77a : #8a5a00;
-    out property <color> c-number: dark ? #ff9e64 : #b54708;
-    out property <color> c-keyword: dark ? #c4a7ff : #6842f5;
+    out property <color> c-key: dark ? #b7a6f5 : #5b3fd6;
+    out property <color> c-string: dark ? #cfd3c2 : #4d5b2b;
+    out property <color> c-number: dark ? #e0b089 : #9a4a12;
+    out property <color> c-keyword: dark ? #8fb8c9 : #1f6f8b;
     public pure function method(m: string) -> color {
-        m == "GET" ? #6aa5ff : m == "POST" ? #ff9e64 : m == "DELETE" ? self.bad : m == "PUT" || m == "PATCH" ? #f0d77a : self.muted
+        m == "GET" ? #8fb8c9 : m == "POST" ? #e0b089 : m == "DELETE" ? self.bad : m == "PUT" || m == "PATCH" ? #cfd3c2 : self.muted
     }
 }
 
@@ -68,7 +69,7 @@ component Icon inherits Path {
 
 component Panel inherits Rectangle {
     background: Theme.panel;
-    border-radius: 14px;
+    border-radius: 4px;
     border-width: 1px;
     border-color: Theme.line;
 }
@@ -97,11 +98,12 @@ component Btn {
         clicked => { root.clicked(); }
     }
     Rectangle {
-        border-radius: 9px;
-        background: root.primary ? Theme.accent : (ta.has-hover ? Theme.hover : Theme.raised);
+        border-radius: 4px;
+        background: root.primary ? Theme.accent : (ta.has-hover ? Theme.hover : transparent);
         border-width: root.primary ? 0px : 1px;
         border-color: Theme.line;
-        opacity: root.enabled ? (ta.pressed ? 0.8 : 1) : 0.45;
+        opacity: root.enabled ? (ta.pressed ? 0.75 : (root.primary && ta.has-hover ? 0.9 : 1)) : 0.45;
+        animate background, opacity { duration: 120ms; }
     }
     row := HorizontalLayout {
         padding-left: 14px;
@@ -112,12 +114,12 @@ component Btn {
             y: (parent.height - self.height) / 2;
             commands: root.icon;
             filled: root.primary;
-            tint: root.primary ? #ffffff : Theme.fg;
+            tint: root.primary ? Theme.on-accent : Theme.fg;
             opacity: root.enabled ? 1 : 0.5;
         }
         if root.text != "": Text {
             text: root.text;
-            color: root.primary ? #ffffff : Theme.fg;
+            color: root.primary ? Theme.on-accent : Theme.fg;
             font-weight: 600;
             vertical-alignment: center;
             opacity: root.enabled ? 1 : 0.5;
@@ -147,10 +149,12 @@ component Tabs {
                 font-weight: i == root.current ? 600 : 400;
             }
             Rectangle {
-                y: parent.height - 3px;
-                height: 3px;
-                border-radius: 1.5px;
-                background: i == root.current ? Theme.accent : transparent;
+                y: parent.height - 1px;
+                height: 1px;
+                x: i == root.current ? 0 : parent.width / 2;
+                width: i == root.current ? parent.width : 0;
+                background: Theme.accent;
+                animate x, width { duration: 160ms; easing: ease-out; }
             }
         }
     }
@@ -194,7 +198,7 @@ component Table {
     callback add;
     callback remove(int);
     Rectangle {
-        border-radius: 10px;
+        border-radius: 4px;
         border-width: 1px;
         border-color: Theme.line;
         background: Theme.raised;
@@ -293,6 +297,44 @@ component Table {
     }
 }
 
+component Seg {
+    in property <[string]> titles;
+    in-out property <int> current;
+    callback changed;
+    height: 32px;
+    Rectangle {
+        border-radius: 4px;
+        background: Theme.raised;
+        border-width: 1px;
+        border-color: Theme.line;
+    }
+    HorizontalLayout {
+        padding: 3px;
+        for title[i] in root.titles: Rectangle {
+            width: seg-label.preferred-width + 28px;
+            border-radius: 4px;
+            background: i == root.current ? Theme.accent-soft : transparent;
+            accessible-role: tab;
+            accessible-label: title;
+            accessible-action-default => {
+                root.current = i;
+                root.changed();
+            }
+            TouchArea {
+                clicked => {
+                    root.current = i;
+                    root.changed();
+                }
+            }
+            seg-label := Text {
+                text: title;
+                color: i == root.current ? Theme.fg : Theme.muted;
+                font-weight: i == root.current ? 600 : 400;
+            }
+        }
+    }
+}
+
 component SideRow {
     in property <Entry> e;
     in property <bool> selected;
@@ -306,10 +348,9 @@ component SideRow {
         clicked => { root.clicked(); }
     }
     Rectangle {
-        border-radius: 9px;
+        border-radius: 4px;
         background: root.selected ? Theme.accent-soft : (ta.has-hover ? Theme.hover : transparent);
-        border-width: root.selected ? 1px : 0px;
-        border-color: Theme.accent;
+        animate background { duration: 120ms; }
     }
     HorizontalLayout {
         padding-left: root.e.header ? 10px : 14px;
@@ -380,7 +421,7 @@ export component App inherits Window {
     min-height: 420px;
     preferred-width: 1440px;
     preferred-height: 860px;
-    background: Theme.backdrop;
+    background: Theme.dark ? #07060b : #efeaff;
     default-font-size: 14px;
 
     in property <string> project;
@@ -405,7 +446,9 @@ export component App inherits Window {
     in property <string> sent;
     in property <string> sent-url;
     in property <[Line]> resp-lines;
-    in property <string> resp-text; // same body as plain text, for copying
+    in property <string> resp-text; // formatted body as plain text, for copying
+    in property <string> resp-raw; // body exactly as received
+    in-out property <int> resp-view; // 0 pretty, 1 raw
     in property <[KV]> resp-headers;
     in property <string> curl;
     in-out property <string> note;
@@ -421,6 +464,7 @@ export component App inherits Window {
     callback remove-param(int);
     callback add-header;
     callback remove-header(int);
+    callback view-changed;
 
     property <int> req-tab;
     property <int> resp-tab;
@@ -465,6 +509,14 @@ export component App inherits Window {
         height: 0px;
     }
 
+
+    if Theme.dark: Image {
+        source: @image-url("../assets/backdrop.jpg");
+        width: root.width;
+        height: root.height;
+        image-fit: cover;
+    }
+
     forward-focus: scope;
     scope := FocusScope {
         key-pressed(e) => { root.keys(e) }
@@ -474,8 +526,8 @@ export component App inherits Window {
             y: 0;
             width: root.width;
             height: root.height;
-            padding: 14px;
-            spacing: 12px;
+            padding: 16px;
+            spacing: 14px;
 
             // top bar
             HorizontalLayout {
@@ -494,17 +546,18 @@ export component App inherits Window {
                         tint: Theme.accent;
                     }
                     Text {
-                        text: "Snapreq";
+                        text: "SNAPREQ";
                         color: Theme.fg;
-                        font-size: 19px;
-                        font-weight: 700;
+                        font-size: 14px;
+                        font-weight: 600;
+                        letter-spacing: 4px;
                         vertical-alignment: center;
                     }
                 }
                 Rectangle {
                     horizontal-stretch: 1;
                     max-width: 520px;
-                    border-radius: 10px;
+                    border-radius: 4px;
                     border-width: 1px;
                     border-color: search-edit.has-focus ? Theme.accent : Theme.line;
                     background: Theme.panel;
@@ -543,7 +596,7 @@ export component App inherits Window {
                             y: (parent.height - self.height) / 2;
                             width: hint.preferred-width + 14px;
                             height: 24px;
-                            border-radius: 6px;
+                            border-radius: 4px;
                             background: Theme.raised;
                             hint := Text {
                                 text: "Ctrl + K";
@@ -560,12 +613,6 @@ export component App inherits Window {
                     vertical-alignment: center;
                     horizontal-alignment: right;
                     overflow: elide;
-                }
-                if root.envs.length > 0: ComboBox {
-                    width: 170px;
-                    model: root.envs;
-                    current-value <=> root.env;
-                    accessible-label: @tr("Environment");
                 }
             }
 
@@ -609,6 +656,27 @@ export component App inherits Window {
                                 e: e;
                                 selected: i == root.current;
                                 clicked => { root.select(i); }
+                            }
+                        }
+                        if root.envs.length > 0: Rectangle {
+                            height: 1px;
+                            background: Theme.line;
+                        }
+                        if root.envs.length > 0: Text {
+                            height: 28px;
+
+                            text: @tr("Environments");
+                            color: Theme.muted;
+                            font-size: 12px;
+                            font-weight: 700;
+                            vertical-alignment: center;
+                        }
+                        if root.envs.length > 0: ListView {
+                            height: min(root.envs.length * 36px, 150px);
+                            for name in root.envs: SideRow {
+                                e: { label: name, method: "ENV" };
+                                selected: name == root.env;
+                                clicked => { root.env = name; }
                             }
                         }
                     }
@@ -670,6 +738,12 @@ export component App inherits Window {
                                 ];
                                 current <=> root.req-tab;
                             }
+                            if root.req-tab == 0: Text {
+                                text: @tr("Query Params");
+                                color: Theme.fg;
+                                font-size: 15px;
+                                font-weight: 600;
+                            }
                             if root.req-tab == 0: Table {
                                 vertical-stretch: 1;
                                 rows <=> root.params;
@@ -719,7 +793,7 @@ export component App inherits Window {
                                     y: (parent.height - self.height) / 2;
                                     width: pill.preferred-width + 20px;
                                     height: 26px;
-                                    border-radius: 7px;
+                                    border-radius: 3px;
                                     background: root.status-class == 4 ? Theme.bad-soft : Theme.ok-soft;
                                     pill := Text {
                                         text: root.status;
@@ -743,12 +817,20 @@ export component App inherits Window {
                                     icon: Icons.copy;
                                     enabled: root.resp-text != "";
                                     label: @tr("Copy response");
-                                    clicked => { root.copy(root.resp-text, @tr("Response copied")); }
+                                    clicked => { root.copy(root.resp-view == 1 ? root.resp-raw : root.resp-text, @tr("Response copied")); }
+                                }
+                            }
+                            if root.resp-tab == 0 && root.status != "": HorizontalLayout {
+                                alignment: start;
+                                Seg {
+                                    titles: [@tr("Pretty"), @tr("Raw")];
+                                    current <=> root.resp-view;
+                                    changed => { root.view-changed(); }
                                 }
                             }
                             Rectangle {
                                 vertical-stretch: 1;
-                                border-radius: 10px;
+                                border-radius: 4px;
                                 border-width: 1px;
                                 border-color: Theme.line;
                                 background: Theme.raised;
@@ -757,7 +839,17 @@ export component App inherits Window {
                                     text: @tr("Press Ctrl+Enter to send the request.");
                                     color: Theme.muted;
                                 }
+                                // moves only while a request is running, so idle stays at 0 % CPU
+                                if root.busy: Rectangle {
+                                    y: 0;
+                                    height: 1px;
+                                    width: parent.width / 4;
+                                    x: mod(animation-tick(), 1100ms) / 1100ms * (parent.width + self.width) - self.width;
+                                    background: Theme.accent;
+                                }
                                 if root.resp-tab == 0: ListView {
+                                    opacity: root.busy ? 0.25 : 1;
+                                    animate opacity { duration: 180ms; }
                                     x: 0;
                                     y: 8px;
                                     width: parent.width;
@@ -849,7 +941,7 @@ export component App inherits Window {
                             Rectangle {
                                 width: badge.preferred-width + 16px;
                                 height: 22px;
-                                border-radius: 6px;
+                                border-radius: 4px;
                                 background: Theme.accent-soft;
                                 badge := Text {
                                     text: root.method;
@@ -900,7 +992,7 @@ export component App inherits Window {
                         }
                         Rectangle {
                             height: min(max(snippet.preferred-height + 24px, 80px), 220px);
-                            border-radius: 10px;
+                            border-radius: 4px;
                             border-width: 1px;
                             border-color: Theme.line;
                             background: Theme.raised;
@@ -934,7 +1026,7 @@ export component App inherits Window {
                             icon: Icons.copy;
                             text: @tr("Copy response");
                             enabled: root.resp-text != "";
-                            clicked => { root.copy(root.resp-text, @tr("Response copied")); }
+                            clicked => { root.copy(root.resp-view == 1 ? root.resp-raw : root.resp-text, @tr("Response copied")); }
                         }
                     }
                 }

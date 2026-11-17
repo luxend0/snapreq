@@ -457,19 +457,25 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
                     let end = (0..=1_000_000).rev().find(|&i| body.is_char_boundary(i)).unwrap_or(0);
                     body.truncate(end);
                 }
-                (r.status, format!("{} {}", r.status, r.reason), format!("{} ms", r.ms), run::size(r.body.len()), body, r.headers, cut)
+                let mut raw = String::from_utf8_lossy(&r.body).into_owned();
+                if raw.len() > 1_000_000 {
+                    let end = (0..=1_000_000).rev().find(|&i| raw.is_char_boundary(i)).unwrap_or(0);
+                    raw.truncate(end);
+                }
+                (r.status, format!("{} {}", r.status, r.reason), format!("{} ms", r.ms), run::size(r.body.len()), body, raw, r.headers, cut)
             });
             let _ = slint::invoke_from_event_loop(move || {
                 let Some(app) = w.upgrade() else { return };
                 app.set_busy(false);
                 match out {
-                    Ok((code, status, ms, size, body, headers, cut)) => {
+                    Ok((code, status, ms, size, body, raw, headers, cut)) => {
                         app.set_status(status.into());
                         app.set_status_class(if code >= 400 { 4 } else if code >= 300 { 3 } else { 2 });
                         app.set_duration(ms.into());
                         app.set_size(size.into());
-                        app.set_resp_lines(ModelRc::new(VecModel::from(lines(&body))));
+                        app.set_resp_lines(ModelRc::new(VecModel::from(lines(if app.get_resp_view() == 1 { &raw } else { &body }))));
                         app.set_resp_text(body.into());
+                        app.set_resp_raw(raw.into());
                         app.set_resp_headers(kv_model(&headers));
                         if cut {
                             app.set_note(t("Showing the first 1 MB", "Zeigt das erste MB").into());
@@ -481,12 +487,21 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
                         app.set_duration(SharedString::new());
                         app.set_size(SharedString::new());
                         app.set_resp_lines(ModelRc::new(VecModel::from(lines(&e))));
+                        app.set_resp_raw(e.as_str().into());
                         app.set_resp_text(e.into());
                         app.set_resp_headers(kv_model(&[]));
                     }
                 }
             });
         });
+    });
+
+    let w = app.as_weak();
+    app.on_view_changed(move || {
+        if let Some(app) = w.upgrade() {
+            let text = if app.get_resp_view() == 1 { app.get_resp_raw() } else { app.get_resp_text() };
+            app.set_resp_lines(ModelRc::new(VecModel::from(lines(&text))));
+        }
     });
 
     app.show()?;
