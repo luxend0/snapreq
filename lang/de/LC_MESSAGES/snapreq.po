@@ -107,3 +107,9 @@ msgstr "Verlauf"
 
 msgid "Nothing sent yet."
 msgstr "Noch nichts gesendet."
+
+msgid "Close tab"
+msgstr "Reiter schließen"
+
+msgid "New tab"
+msgstr "Neuer Reiter"

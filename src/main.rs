@@ -298,6 +298,159 @@ fn show_history(app: &App) {
     app.set_history(ModelRc::new(VecModel::from(rows)));
 }
 
+/// What the response panel shows.
+#[derive(Clone, Default)]
+struct Resp {
+    status: String,
+    class: i32,
+    duration: String,
+    size: String,
+    sent: String,
+    sent_url: String,
+    text: String,
+    raw: String,
+    headers: Vec<(String, String)>,
+}
+
+/// One open tab: the editor contents and the last response. The active tab lives in the window
+/// and is copied back here whenever tabs are switched or listed.
+#[derive(Clone)]
+struct Tab {
+    id: u32,
+    /// The request it belongs to: file and position among that file's requests.
+    at: Option<(PathBuf, usize)>,
+    method: String,
+    url: String,
+    headers: Vec<(String, String)>,
+    body: String,
+    dirty: bool,
+    busy: bool,
+    resp: Resp,
+}
+
+struct Tabs {
+    list: Vec<Tab>,
+    active: usize,
+    next: u32,
+}
+
+impl Tabs {
+    fn fresh(&mut self) -> Tab {
+        self.next += 1;
+        Tab { id: self.next, at: None, method: "GET".into(), url: String::new(), headers: vec![], body: String::new(), dirty: false, busy: false, resp: Resp::default() }
+    }
+}
+
+thread_local! {
+    /// Only touched on the window thread.
+    static TABS: RefCell<Tabs> = RefCell::new({
+        let mut t = Tabs { list: vec![], active: 0, next: 0 };
+        let first = t.fresh();
+        t.list.push(first);
+        t
+    });
+}
+
+fn ident(st: &State, item: Option<usize>) -> Option<(PathBuf, usize)> {
+    let n = item?;
+    st.items[n].req.as_ref()?;
+    let file = &st.items[n].file;
+    Some((file.clone(), st.items[..n].iter().filter(|i| i.file == *file && i.req.is_some()).count()))
+}
+
+fn locate(st: &State, at: &Option<(PathBuf, usize)>) -> Option<usize> {
+    let (file, nth) = at.as_ref()?;
+    st.items.iter().enumerate().filter(|(_, i)| i.file == *file && i.req.is_some()).nth(*nth).map(|(i, _)| i)
+}
+
+fn grab(app: &App, st: &State, old: &Tab) -> Tab {
+    Tab {
+        id: old.id,
+        // a search filter can hide the selected row; the tab still belongs to its request then
+        at: ident(st, selected(app, st)).or_else(|| old.at.clone()),
+        method: app.get_method().into(),
+        url: app.get_url().into(),
+        headers: kv_read(&app.get_headers()),
+        body: app.get_body().into(),
+        dirty: app.get_dirty(),
+        busy: app.get_busy(),
+        resp: Resp {
+            status: app.get_status().into(),
+            class: app.get_status_class(),
+            duration: app.get_duration().into(),
+            size: app.get_size().into(),
+            sent: app.get_sent().into(),
+            sent_url: app.get_sent_url().into(),
+            text: app.get_resp_text().into(),
+            raw: app.get_resp_raw().into(),
+            headers: kv_read(&app.get_resp_headers()),
+        },
+    }
+}
+
+fn show_resp(app: &App, r: &Resp) {
+    app.set_status(r.status.as_str().into());
+    app.set_status_class(r.class);
+    app.set_duration(r.duration.as_str().into());
+    app.set_size(r.size.as_str().into());
+    app.set_sent(r.sent.as_str().into());
+    app.set_sent_url(r.sent_url.as_str().into());
+    app.set_resp_lines(ModelRc::new(VecModel::from(if app.get_resp_view() == 1 { plain(&r.raw) } else { lines(&r.text) })));
+    app.set_resp_text(r.text.as_str().into());
+    app.set_resp_raw(r.raw.as_str().into());
+    app.set_resp_headers(kv_model(&r.headers));
+}
+
+fn put(app: &App, st: &State, t: &Tab) {
+    let item = locate(st, &t.at);
+    app.set_current(item.and_then(|n| st.shown.iter().position(|&x| x == n)).map(|r| r as i32).unwrap_or(-1));
+    fill(app, st, item, &http::Request { method: t.method.clone(), url: t.url.clone(), headers: t.headers.clone(), body: t.body.clone(), ..Default::default() });
+    app.set_dirty(t.dirty);
+    app.set_busy(t.busy);
+    app.set_note(SharedString::new());
+    show_resp(app, &t.resp);
+}
+
+/// Copies the window into the active tab and refreshes the tab strip.
+fn show_tabs(app: &App, st: &State) {
+    TABS.with_borrow_mut(|tabs| {
+        let a = tabs.active;
+        tabs.list[a] = grab(app, st, &tabs.list[a]);
+        let rows: Vec<Entry> = tabs
+            .list
+            .iter()
+            .map(|tab| {
+                let name = locate(st, &tab.at).and_then(|n| st.items[n].req.as_ref()).map(|r| r.name.clone());
+                let url = tab.url.split_once("://").map(|(_, u)| u).unwrap_or(&tab.url);
+                let label = name.unwrap_or_else(|| if url.is_empty() { t("New tab", "Neuer Reiter").to_string() } else { url.to_string() });
+                Entry { label: label.into(), method: tab.method.as_str().into(), sub: SharedString::new(), header: false }
+            })
+            .collect();
+        app.set_tabs(ModelRc::new(VecModel::from(rows)));
+        app.set_tab(a as i32);
+    });
+}
+
+fn switch_tab(app: &App, st: &State, to: usize) {
+    let tab = TABS.with_borrow_mut(|t| {
+        let a = t.active;
+        t.list[a] = grab(app, st, &t.list[a]);
+        t.active = to.min(t.list.len() - 1);
+        t.list[t.active].clone()
+    });
+    put(app, st, &tab);
+    show_tabs(app, st);
+}
+
+fn new_tab(app: &App, st: &State) {
+    let n = TABS.with_borrow_mut(|t| {
+        let tab = t.fresh();
+        t.list.push(tab);
+        t.list.len() - 1
+    });
+    switch_tab(app, st, n);
+}
+
 fn edited(app: &App, base: Option<&http::Request>) -> http::Request {
     http::Request {
         method: app.get_method().to_string(),
@@ -357,6 +510,7 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
         refresh(&app, &mut s);
         let first = s.items.iter().position(|i| i.req.is_some());
         select_item(&app, &s, first);
+        show_tabs(&app, &s);
     }
 
     HISTORY.set(history::load());
@@ -372,9 +526,22 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
     app.on_select(move |row| {
         let (Some(app), st) = (w.upgrade(), s.borrow()) else { return };
         let item = st.shown.get(row as usize).copied().filter(|&n| st.items[n].req.is_some());
-        if item.is_some() {
-            select_item(&app, &st, item);
+        if item.is_none() {
+            return;
         }
+        show_tabs(&app, &st);
+        let at = ident(&st, item);
+        let (open, active) = TABS.with_borrow(|t| (t.list.iter().position(|x| x.at == at), t.active));
+        match open {
+            Some(n) if n != active => switch_tab(&app, &st, n),
+            // unsaved edits or a running request stay where they are; the request opens next to them
+            None if app.get_dirty() || app.get_busy() => {
+                new_tab(&app, &st);
+                select_item(&app, &st, item);
+            }
+            _ => select_item(&app, &st, item),
+        }
+        show_tabs(&app, &st);
     });
 
     let (w, s) = (app.as_weak(), st.clone());
@@ -446,6 +613,7 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
                 app.set_current(again.and_then(|n| st.shown.iter().position(|&x| x == n)).map(|r| r as i32).unwrap_or(-1));
                 app.set_dirty(false);
                 app.set_note(t("Saved", "Gespeichert").into());
+                show_tabs(&app, &st);
             }
             Err(e) => app.set_note(format!("{}: {e}", file.display()).into()),
         }
@@ -469,7 +637,11 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
         st.filter.clear();
         refresh(&app, &mut st);
         let new = st.items.iter().rposition(|i| i.file == file && i.req.is_some());
+        if app.get_dirty() || app.get_busy() {
+            new_tab(&app, &st);
+        }
         select_item(&app, &st, new);
+        show_tabs(&app, &st);
     });
 
     let (w, s) = (app.as_weak(), st.clone());
@@ -490,59 +662,95 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
         app.set_busy(true);
         app.set_snippets(snippets(&req));
         app.set_sent_url(req.url.as_str().into());
-        app.set_sent(now_text().into());
+        app.set_sent(sent.time.as_str().into());
         app.set_note(if missing.is_empty() { SharedString::new() } else { format!("{}: {}", t("Undefined variables", "Nicht definierte Variablen"), missing.join(", ")).into() });
+        let id = TABS.with_borrow(|t| t.list[t.active].id);
         let (w, client) = (w.clone(), client.clone());
         handle.spawn(async move {
             let res = run::send(&client, &req).await;
             // Prepare the text off the window thread. ponytail: display is capped at 1 MB, larger bodies need a streaming viewer.
-            let out = res.map(|r| {
-                let mut body = run::display(&r);
-                let cut = body.len() > 1_000_000;
+            let cap = |mut s: String| {
+                let cut = s.len() > 1_000_000;
                 if cut {
-                    let end = (0..=1_000_000).rev().find(|&i| body.is_char_boundary(i)).unwrap_or(0);
-                    body.truncate(end);
+                    let end = (0..=1_000_000).rev().find(|&i| s.is_char_boundary(i)).unwrap_or(0);
+                    s.truncate(end);
                 }
-                let mut raw = String::from_utf8_lossy(&r.body).into_owned();
-                if raw.len() > 1_000_000 {
-                    let end = (0..=1_000_000).rev().find(|&i| raw.is_char_boundary(i)).unwrap_or(0);
-                    raw.truncate(end);
+                (s, cut)
+            };
+            let base = Resp { sent: sent.time.clone(), sent_url: req.url.clone(), ..Default::default() };
+            let (resp, cut) = match res {
+                Ok(r) => {
+                    sent.status = r.status;
+                    let (text, cut) = cap(run::display(&r));
+                    let raw = cap(String::from_utf8_lossy(&r.body).into_owned()).0;
+                    let class = if r.status >= 400 { 4 } else if r.status >= 300 { 3 } else { 2 };
+                    (Resp { status: format!("{} {}", r.status, r.reason), class, duration: format!("{} ms", r.ms), size: run::size(r.body.len()), text, raw, headers: r.headers, ..base }, cut)
                 }
-                (r.status, format!("{} {}", r.status, r.reason), format!("{} ms", r.ms), run::size(r.body.len()), body, raw, r.headers, cut)
-            });
+                Err(e) => (Resp { status: t("Failed", "Fehlgeschlagen").into(), class: 4, text: e.clone(), raw: e, ..base }, false),
+            };
             let _ = slint::invoke_from_event_loop(move || {
                 let Some(app) = w.upgrade() else { return };
-                app.set_busy(false);
-                sent.status = out.as_ref().map(|o| o.0).unwrap_or(0);
                 HISTORY.with_borrow_mut(|h| history::add(h, sent));
                 show_history(&app);
-                match out {
-                    Ok((code, status, ms, size, body, raw, headers, cut)) => {
-                        app.set_status(status.into());
-                        app.set_status_class(if code >= 400 { 4 } else if code >= 300 { 3 } else { 2 });
-                        app.set_duration(ms.into());
-                        app.set_size(size.into());
-                        app.set_resp_lines(ModelRc::new(VecModel::from(if app.get_resp_view() == 1 { plain(&raw) } else { lines(&body) })));
-                        app.set_resp_text(body.into());
-                        app.set_resp_raw(raw.into());
-                        app.set_resp_headers(kv_model(&headers));
-                        if cut {
-                            app.set_note(t("Showing the first 1 MB", "Zeigt das erste MB").into());
-                        }
+                // the response belongs to the tab that sent it, even if another one is in front by now
+                let front = TABS.with_borrow_mut(|t| {
+                    let front = t.list[t.active].id == id;
+                    if let Some(tab) = t.list.iter_mut().find(|x| x.id == id) {
+                        tab.busy = false;
+                        tab.resp = resp.clone();
                     }
-                    Err(e) => {
-                        app.set_status(t("Failed", "Fehlgeschlagen").into());
-                        app.set_status_class(4);
-                        app.set_duration(SharedString::new());
-                        app.set_size(SharedString::new());
-                        app.set_resp_lines(ModelRc::new(VecModel::from(lines(&e))));
-                        app.set_resp_raw(e.as_str().into());
-                        app.set_resp_text(e.into());
-                        app.set_resp_headers(kv_model(&[]));
+                    front
+                });
+                if front {
+                    app.set_busy(false);
+                    show_resp(&app, &resp);
+                    if cut {
+                        app.set_note(t("Showing the first 1 MB", "Zeigt das erste MB").into());
                     }
                 }
             });
         });
+    });
+
+    let (w, s) = (app.as_weak(), st.clone());
+    app.on_tab_select(move |i| {
+        if let Some(app) = w.upgrade() {
+            switch_tab(&app, &s.borrow(), i.max(0) as usize);
+        }
+    });
+    let (w, s) = (app.as_weak(), st.clone());
+    app.on_tab_new(move || {
+        if let Some(app) = w.upgrade() {
+            new_tab(&app, &s.borrow());
+        }
+    });
+    let (w, s) = (app.as_weak(), st.clone());
+    app.on_tab_close(move |i| {
+        let (Some(app), st) = (w.upgrade(), s.borrow()) else { return };
+        // -1: the tab in front
+        let reload = TABS.with_borrow_mut(|t| {
+            let i = if i < 0 { t.active } else { i as usize };
+            if i >= t.list.len() {
+                return None;
+            }
+            if t.list.len() == 1 {
+                t.list[0] = t.fresh();
+            } else {
+                t.list.remove(i);
+                if i < t.active {
+                    t.active -= 1;
+                    return None;
+                } else if i > t.active {
+                    return None;
+                }
+                t.active = t.active.min(t.list.len() - 1);
+            }
+            Some(t.list[t.active].clone())
+        });
+        if let Some(tab) = reload {
+            put(&app, &st, &tab);
+        }
+        show_tabs(&app, &st);
     });
 
     let (w, s) = (app.as_weak(), st.clone());
@@ -552,9 +760,16 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
         // back to the request it came from if that still exists, so its file variables and Save apply
         let item = st.items.iter().position(|i| i.file.to_string_lossy() == h.file.as_str() && i.req.as_ref().is_some_and(|r| r.name == h.req.name));
         app.set_current(item.and_then(|n| st.shown.iter().position(|&x| x == n)).map(|r| r as i32).unwrap_or(-1));
+        if item.is_none() {
+            TABS.with_borrow_mut(|t| {
+                let a = t.active;
+                t.list[a].at = None;
+            });
+        }
         fill(&app, &st, item, &h.req);
         let same = |r: &http::Request| (&r.method, &r.url, &r.headers, &r.body) == (&h.req.method, &h.req.url, &h.req.headers, &h.req.body);
         app.set_dirty(item.and_then(|n| st.items[n].req.as_ref()).is_some_and(|r| !same(r)));
+        show_tabs(&app, &st);
     });
 
     let w = app.as_weak();
@@ -571,6 +786,17 @@ fn gui(dir: PathBuf, t0: Instant) -> Result<(), Box<dyn std::error::Error>> {
         app.invoke_send();
         if std::env::var_os("SNAPREQ_AUTOSEND").is_some_and(|v| v == "history") {
             app.set_side_tab(1);
+        }
+        // =tabs: open a second tab while the first is still waiting, come back after 2 s
+        if std::env::var_os("SNAPREQ_AUTOSEND").is_some_and(|v| v == "tabs") {
+            app.invoke_tab_new();
+            app.invoke_select(2);
+            let w = app.as_weak();
+            slint::Timer::single_shot(Duration::from_secs(2), move || {
+                if let Some(app) = w.upgrade() {
+                    app.invoke_tab_select(0);
+                }
+            });
         }
     }
     // SNAPREQ_SHOT=file.ppm: write a picture of the window after 3 s, then quit (checks without touching the desktop).

@@ -434,6 +434,8 @@ export component App inherits Window {
     in property <string> project;
     in property <[Entry]> entries;
     in property <[Entry]> history;
+    in property <[Entry]> tabs;
+    in property <int> tab;
     in-out property <int> side-tab;
     in-out property <int> current: -1;
     in property <[string]> envs;
@@ -466,6 +468,9 @@ export component App inherits Window {
 
     callback select(int);
     callback history-select(int);
+    callback tab-select(int);
+    callback tab-close(int);
+    callback tab-new;
     callback send;
     callback save;
     callback new-request;
@@ -500,6 +505,14 @@ export component App inherits Window {
         }
         if (e.modifiers.control && e.text == "n") {
             root.new-request();
+            return accept;
+        }
+        if (e.modifiers.control && e.text == "t") {
+            root.tab-new();
+            return accept;
+        }
+        if (e.modifiers.control && e.text == "w") {
+            root.tab-close(-1);
             return accept;
         }
         if (e.modifiers.control && e.text == "l") {
@@ -768,6 +781,76 @@ export component App inherits Window {
                 VerticalLayout {
                     spacing: 12px;
                     horizontal-stretch: 1;
+
+                    HorizontalLayout {
+                        height: 34px;
+                        spacing: 6px;
+                        for e[i] in root.tabs: Rectangle {
+                            horizontal-stretch: 1;
+                            min-width: 40px;
+                            max-width: 220px;
+                            border-radius: 4px;
+                            border-width: 1px;
+                            border-color: i == root.tab ? Theme.line : transparent;
+                            background: i == root.tab ? Theme.panel : (tab-ta.has-hover ? Theme.hover : transparent);
+                            clip: true;
+                            animate background { duration: 120ms; }
+                            accessible-role: AccessibleRole.tab;
+                            accessible-label: e.method + " " + e.label;
+                            accessible-action-default => { root.tab-select(i); }
+                            tab-ta := TouchArea {
+                                clicked => { root.tab-select(i); }
+                            }
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 4px;
+                                spacing: 8px;
+                                Text {
+                                    text: e.method;
+                                    color: Theme.method(e.method);
+                                    font-size: 11px;
+                                    font-weight: 700;
+                                    vertical-alignment: center;
+                                }
+                                Text {
+                                    text: (i == root.tab && root.dirty ? "* " : "") + e.label;
+                                    color: i == root.tab ? Theme.fg : Theme.muted;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                    horizontal-stretch: 1;
+                                }
+                                Rectangle {
+                                    y: (parent.height - self.height) / 2;
+                                    width: 24px;
+                                    height: 24px;
+                                    border-radius: 4px;
+                                    background: close-ta.has-hover ? Theme.hover : transparent;
+                                    accessible-role: button;
+                                    accessible-label: @tr("Close tab");
+                                    accessible-action-default => { root.tab-close(i); }
+                                    close-ta := TouchArea {
+                                        clicked => { root.tab-close(i); }
+                                    }
+                                    Icon {
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                        width: 12px;
+                                        height: 12px;
+                                        commands: Icons.close;
+                                    }
+                                }
+                            }
+                        }
+                        Btn {
+                            icon: Icons.plus;
+                            h: 34px;
+                            label: @tr("New tab");
+                            clicked => { root.tab-new(); }
+                        }
+                        Rectangle {
+                            horizontal-stretch: 1;
+                        }
+                    }
 
                     Panel {
                         vertical-stretch: 2;
